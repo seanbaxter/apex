@@ -1,7 +1,9 @@
 #include "tokenizer.hxx"
 #include <climits>
 
-BEGIN_APEXTOK_NAMESPACE
+BEGIN_APEX_NAMESPACE
+
+namespace tok {
 
 result_t<unused_t> lexer_t::pp_number(range_t range) {
   result_t<unused_t> result;
@@ -205,4 +207,6 @@ result_t<token_t> lexer_t::number(range_t range) {
   return result;
 }
 
-END_APEXTOK_NAMESPACE
+} // namespace tok
+
+END_APEX_NAMESPACE

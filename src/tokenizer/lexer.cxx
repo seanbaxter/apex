@@ -1,7 +1,9 @@
 #include "tokenizer.hxx"
 #include <cctype>
 
-BEGIN_APEXTOK_NAMESPACE
+BEGIN_APEX_NAMESPACE
+
+namespace tok {
 
 result_t<token_t> lexer_t::char_literal(range_t range) {
   const char* begin = range.begin;
@@ -147,4 +149,6 @@ void lexer_t::throw_error(const char* p, const char* msg) {
   exit(0);
 }
 
-END_APEXTOK_NAMESPACE
+} // namespace tok
+
+END_APEX_NAMESPACE

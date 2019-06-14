@@ -7,9 +7,6 @@
 #define BEGIN_APEX_NAMESPACE namespace apex {
 #define END_APEX_NAMESPACE }
 
-#define BEGIN_APEXTOK_NAMESPACE namespace apextok {
-#define END_APEXTOK_NAMESPACE }
-
 BEGIN_APEX_NAMESPACE
 
 // Encodes ucs into the UTF-8 buffer at s. Returns the number of characters

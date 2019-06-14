@@ -1,8 +1,8 @@
 #include "tokens.hxx"
 
-BEGIN_APEXTOK_NAMESPACE
+BEGIN_APEX_NAMESPACE
 
-using namespace apex;
+namespace tok {
 
 struct range_t {
   const char* begin, *end;
@@ -121,4 +121,6 @@ struct tokenizer_t {
   std::vector<token_t> tokenize(range_t range);
 };
 
-END_APEXTOK_NAMESPACE
+} // namespace tok
+
+END_APEX_NAMESPACE

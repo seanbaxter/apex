@@ -1,6 +1,8 @@
 #include "tokenizer.hxx"
 
-BEGIN_APEXTOK_NAMESPACE
+BEGIN_APEX_NAMESPACE
+
+namespace tok {
 
 int tokenizer_t::reg_string(range_t range) {
   int id = find_string(range);
@@ -37,5 +39,7 @@ std::vector<apex::token_t> tokenizer_t::tokenize(range_t range) {
   return tokens;
 }
 
-END_APEXTOK_NAMESPACE
+} // namespace tok
+
+END_APEX_NAMESPACE
 

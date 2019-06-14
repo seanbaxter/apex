@@ -2,7 +2,9 @@
 #include <cstring>
 #include <algorithm>
 
-BEGIN_APEXTOK_NAMESPACE
+BEGIN_APEX_NAMESPACE
+
+namespace tok {
 
 struct tk_symbol_t {
   const char* symbol;
@@ -172,4 +174,6 @@ result_t<tk_kind_t> match_operator(range_t range) {
   return match.substring(range);
 }
 
-END_APEXTOK_NAMESPACE
+} // namespace tok
+
+END_APEX_NAMESPACE

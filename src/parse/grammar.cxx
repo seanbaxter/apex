@@ -1,9 +1,10 @@
 #include "parse.hxx"
-#include "range.hxx"
 #include <stack>
 #include <cstring>
 
 BEGIN_APEX_NAMESPACE
+
+namespace parse {
 
 struct grammar_t {
   token_it advance_brace(range_t range);
@@ -43,7 +44,7 @@ struct grammar_t {
   void throw_error(token_it pos, const char* msg);
   void unexpected_token(token_it pos, const char* msg);
 
-  const apextok::tokenizer_t& tokenizer;
+  const tok::tokenizer_t& tokenizer;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -755,6 +756,8 @@ parse_t parse_expression(const char* begin, const char* end) {
 parse_t parse_expression(const char* str) {
   return parse_expression(str, str + strlen(str));
 }
+
+} // namespace parse
 
 END_APEX_NAMESPACE
 
