@@ -53,11 +53,11 @@ struct ad_sq_t : ad_t {
 }; 
 
 struct ad_func_t : ad_t {
-  ad_func_t(std::string func, ad_ptr_t a) : 
-    ad_t(kind_func), func(std::move(func)), a(std::move(a)) { }
+  ad_func_t(std::string f, ad_ptr_t a, ad_ptr_t b = nullptr) : 
+    ad_t(kind_func), f(std::move(f)), a(std::move(a)), b(std::move(b)) { }
 
-  std::string func;
-  ad_ptr_t a;
+  std::string f;
+  ad_ptr_t a, b;
 };
 
 struct ad_builder_t {
@@ -72,9 +72,9 @@ struct ad_builder_t {
   int negate(int a);
 
   // Calls to elementary functions.
+  int sq(int a);
   int sqrt(int a);
   int exp(int a);
-  int pow(int a, int b);
   int ln(int a);
   int sin(int a);
   int cos(int a);
@@ -82,9 +82,8 @@ struct ad_builder_t {
   int sinh(int a);
   int cosh(int a);
   int tanh(int a);
-  int asin(int a);
-  int acos(int a);
-  int atan(int a);
+  int pow(int a, int b);
+  int norm(const int* p, int count);
   
   ad_ptr_t val(int index);
   ad_ptr_t literal(double x);
@@ -94,7 +93,7 @@ struct ad_builder_t {
   ad_ptr_t div(ad_ptr_t a, ad_ptr_t b);
   ad_ptr_t rcp(ad_ptr_t a);
   ad_ptr_t sq(ad_ptr_t a);
-  ad_ptr_t func(const char* name, ad_ptr_t a);
+  ad_ptr_t func(const char* name, ad_ptr_t a, ad_ptr_t b = nullptr);
 
   std::string str(const apex::node_t* node);
 
@@ -136,11 +135,6 @@ struct ad_builder_t {
     tape.push_back(std::move(item));
     return count;
   }
-
-  struct var_t {
-    std::string name;
-    int item;       // Index holding the value and 
-  };
 
   int find_var(const apex::node_t* node, std::string name);
 
@@ -233,6 +227,17 @@ int ad_builder_t::negate(int a) {
 ////////////////////////////////////////////////////////////////////////////////
 // Elementary functions
 
+int ad_builder_t::sq(int a) {
+  item_t item { };
+  item.val = sq(val(a));
+  item.grads.push_back({
+    // grad (a^2) = 2 * a grad a
+    a,
+    mul(literal(2), val(a))
+  });
+  return push_item(std::move(item));
+}
+
 int ad_builder_t::sqrt(int a) {
   item_t item { };
   item.val = func("std::sqrt", val(a));
@@ -264,10 +269,6 @@ int ad_builder_t::ln(int a) {
     rcp(val(a))
   });
   return push_item(std::move(item));
-}
-
-int ad_builder_t::pow(int a, int b) {
-
 }
 
 int ad_builder_t::sin(int a) {
@@ -330,6 +331,48 @@ int ad_builder_t::tanh(int a) {
   return push_item(std::move(item));
 }
 
+int ad_builder_t::pow(int a, int b) {
+  item_t item { };
+  item.val = func("std::pow", val(a), val(b));
+  item.grads.push_back({
+    // d/dx (a**b) = b a**(b - 1) da/dx
+    a,
+    mul(val(b), func("std::pow", val(a), sub(val(b), literal(1))))
+  });
+  item.grads.push_back({
+    // d/dx (a**b) = a**b ln a db/dx
+    b,
+    mul(func("std::pow", val(a), val(b)), func("std::ln", val(a)))
+  });
+  return push_item(std::move(item));
+}
+
+int ad_builder_t::norm(const int* p, int count) {
+  item_t item { };
+
+  // Square and accumulate each argument.
+  ad_ptr_t x = sq(val(p[0]));
+  for(int i = 1; i < count; ++i)
+    x = add(std::move(x), sq(val(p[i])));
+
+  // Take its sqrt.
+  item.val = func("std::sqrt", std::move(x));
+
+  // Differentiate with respect to each argument.
+  // The derivative is f_i * grad f_i / norm(f).
+  // We compute the norm in this tape item during the upsweep, so load it.
+  // We have a 1 / norm common subexpression--this can be eliminated by the
+  // optimizer, but may be added to the tape as its own value.
+  int index = tape.size();
+  for(int i = 0; i < count; ++i) {
+    item.grads.push_back({
+      p[i],
+      div(val(p[i]), val(index))
+    });
+  }
+  return push_item(std::move(item));
+}
+
 std::string ad_builder_t::str(const apex::node_t* node) {
   switch(node->kind) {
     case apex::node_t::kind_ident:
@@ -369,6 +412,7 @@ int ad_builder_t::recurse(const apex::node_unary_t* node) {
     default:
       throw_error(node, "unsupported operator XXX");
   } 
+  return c;
 }
 
 int ad_builder_t::recurse(const apex::node_binary_t* node) {
@@ -400,7 +444,45 @@ int ad_builder_t::recurse(const apex::node_binary_t* node) {
 }
 
 int ad_builder_t::recurse(const apex::node_call_t* node) {
+  std::string func_name = str(node->f.get());
+  std::vector<int> args(node->args.size());
+  for(int i = 0; i < node->args.size(); ++i)
+    args[i] = recurse(node->args[i].get());
 
+  #define GEN_CALL_1(s) \
+    if(#s == func_name) { \
+      if(1 != args.size()) \
+        throw_error(node, #s "() requires 1 argument"); \
+      return s(args[0]); \
+    }
+
+  GEN_CALL_1(sq)
+  GEN_CALL_1(sqrt)
+  GEN_CALL_1(exp)
+  GEN_CALL_1(ln)
+  GEN_CALL_1(sin)
+  GEN_CALL_1(cos)
+  GEN_CALL_1(tan)
+  GEN_CALL_1(sinh)
+  GEN_CALL_1(cosh)
+  GEN_CALL_1(tanh)
+ 
+  #undef GEN_CALL_1
+
+  if("pow" == func_name) {
+    if(2 != node->args.size())
+      throw_error(node, "pow() requires 2 arguments");
+    return pow(args[0], args[1]);
+
+  } else if("norm" == func_name) {
+    // Allow 1 or more arguments.
+    if(!node->args.size())
+      throw_error(node, "norm() requires 1 or more arguments");
+    return norm(args.data(), args.size());
+
+  } else {
+    throw_error(node, "unknown function XXX");
+  }
 }
 
 int ad_builder_t::recurse(const apex::node_t* node) {
@@ -417,6 +499,8 @@ int ad_builder_t::recurse(const apex::node_t* node) {
     case apex::node_t::kind_ident:
     case apex::node_t::kind_member:
     case apex::node_t::kind_subscript:
+      // Don't add a new tape item for independent variables--these get 
+      // provisioned in order at the start.
       result = find_var(node, str(node));
       break;
 
@@ -435,6 +519,7 @@ int ad_builder_t::recurse(const apex::node_t* node) {
     default:
       break;
   }
+  return result;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -472,8 +557,8 @@ ad_ptr_t ad_builder_t::sq(ad_ptr_t a) {
   return std::make_unique<ad_sq_t>(std::move(a));
 }
 
-ad_ptr_t ad_builder_t::func(const char* func, ad_ptr_t a) {
-  return std::make_unique<ad_func_t>(func, std::move(a));
+ad_ptr_t ad_builder_t::func(const char* f, ad_ptr_t a, ad_ptr_t b) {
+  return std::make_unique<ad_func_t>(f, std::move(a), std::move(b));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -491,6 +576,17 @@ int ad_builder_t::find_var(const apex::node_t* node, std::string name) {
 }
 
 int main() {
-  auto p = apex::parse_expression("x + 3 * x / f(y + z << q)");
+  std::string s = "x + 3 * z * x / sin(y + z)";
+  auto p = apex::parse_expression(s.c_str());
+
+  ad_builder_t ad_builder;
+  ad_builder.text = s;
+  ad_builder.var_names.push_back("x");
+  ad_builder.var_names.push_back("y");
+  ad_builder.var_names.push_back("z");
+  ad_builder.tape.resize(3);
+
+  ad_builder.recurse(p.root.get());
+
   return 0;
 }

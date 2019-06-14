@@ -42,6 +42,8 @@ struct grammar_t {
 
   void throw_error(token_it pos, const char* msg);
   void unexpected_token(token_it pos, const char* msg);
+
+  const apextok::tokenizer_t& tokenizer;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -164,6 +166,7 @@ result_t<node_ptr_t> grammar_t::entity(range_t range, bool expect) {
   token_it begin = range.begin;
   if(token_t token = range.advance_if(tk_ident)) {
     auto ident = std::make_unique<node_ident_t>();
+    ident->s = tokenizer.strings[token.store];
     result = make_result(begin, range.begin, std::move(ident));
 
   } else if(expect)
@@ -176,17 +179,27 @@ result_t<node_ptr_t> grammar_t::literal(range_t range) {
   token_it begin = range.begin;
   node_ptr_t node;
   switch(token_t token = range.next()) {
-
-    case tk_int:
-
-
-    case tk_float:
+    case tk_int: {
+      uint64_t ui = tokenizer.ints[token.store];
+      node = std::make_unique<node_int_t>(ui);
       break;
+    }
+
+    case tk_float: {
+      long double ld = tokenizer.floats[token.store];
+      node = std::make_unique<node_float_t>(ld);
+      break;
+    }
 
     case tk_char:
+      node = std::make_unique<node_char_t>((char32_t)token.store);
+      break;
 
-
-    case tk_string:
+    case tk_string: {
+      const std::string& s = tokenizer.strings[token.store];
+      node = std::make_unique<node_string_t>(s);
+      break;    
+    }
 
     case tk_kw_false:
       node = std::make_unique<node_bool_t>(false);
@@ -724,7 +737,7 @@ parse_t parse_expression(const char* begin, const char* end) {
   parse.tokens = parse.tokenizer.tokenize({ begin, end });
 
   // Parse the tokens.
-  grammar_t g;
+  grammar_t g { parse.tokenizer };
   range_t range { 
     parse.tokens.data(), 
     parse.tokens.data() + parse.tokens.size() 

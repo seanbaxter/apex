@@ -25,6 +25,10 @@ struct range_t {
       advance(result->range.end);
   }
 
+  char operator[](ptrdiff_t index) {
+    return (begin + index < end) ? begin[index] : 0;
+  }
+
   char peek() const {
     return (begin < end) ? *begin : 0; 
   }
@@ -69,10 +73,10 @@ struct tokenizer_t;
 struct lexer_t {
   lexer_t(tokenizer_t& tokenizer) : tokenizer(tokenizer) { }
 
-  result_t<char32_t> char_literal(range_t range);
+  result_t<token_t> char_literal(range_t range);
   result_t<char32_t> c_char(range_t range);
   
-  result_t<std::string> string_literal(range_t range);
+  result_t<token_t> string_literal(range_t range);
   result_t<char32_t> s_char(range_t range);
 
   // Match a-zA-Z or a UCS. If digit is true, also match a digit.
@@ -80,6 +84,17 @@ struct lexer_t {
 
   // Read an extended character.
   result_t<char32_t> ucs(range_t range);
+
+  // Read a character sequence matching any number.
+  // This conforms to the C++17 definition pp-number.
+  result_t<unused_t> pp_number(range_t range);
+  result_t<unused_t> decimal_sequence(range_t range);
+  result_t<uint64_t> decimal_number(range_t range);
+  result_t<int> exponent_part(range_t range);
+
+  result_t<uint64_t> integer_literal(range_t range);
+  result_t<long double> floating_point_literal(range_t range);
+  result_t<token_t> number(range_t range);
 
   result_t<token_t> literal(range_t range);
   result_t<token_t> identifier(range_t range);
@@ -97,6 +112,8 @@ struct lexer_t {
 
 struct tokenizer_t {
   std::vector<std::string> strings;
+  std::vector<uint64_t> ints;
+  std::vector<long double> floats;
 
   int reg_string(range_t range);
   int find_string(range_t range) const;

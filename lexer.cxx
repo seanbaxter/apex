@@ -3,28 +3,41 @@
 
 BEGIN_APEXTOK_NAMESPACE
 
-result_t<char32_t> lexer_t::char_literal(range_t range) {
+result_t<token_t> lexer_t::char_literal(range_t range) {
+  const char* begin = range.begin;
+  result_t<token_t> result;
+
   if(range.advance_if('\'')) {
+    char32_t char_;
     if(auto c = c_char(range)) {
+      char_ = c->attr;
 
     } else
       throw_error(range.begin, "expected character in literal");
 
     if(!range.advance_if('\''))
       throw_error(range.begin, "expected \"'\" to end character literal");
+
+    result = make_result(begin, range.begin, token_t {
+      tk_char, (int)char_, begin, range.begin
+    });
   }
+  return result;
 }
 
 result_t<char32_t> lexer_t::c_char(range_t range) {
-
+  // Any character except '.
+  // if(range[0] == '')
+  return { };
 }
 
-result_t<std::string> lexer_t::string_literal(range_t range) {
-
+result_t<token_t> lexer_t::string_literal(range_t range) {
+  return { };
 } 
 
 result_t<char32_t> lexer_t::s_char(range_t range) {
-
+  // Any character except ".
+  return { };
 }
 
 result_t<char32_t> lexer_t::identifier_char(range_t range, bool digit) {
@@ -82,8 +95,10 @@ const char* lexer_t::skip_comment(range_t range) {
 }
 
 result_t<token_t> lexer_t::literal(range_t range) {
-
-  return { };
+  result_t<token_t> result = number(range);
+  if(!result) result = char_literal(range);
+  if(!result) result = string_literal(range);
+  return result;
 }
 
 result_t<token_t> lexer_t::operator_(range_t range) {
