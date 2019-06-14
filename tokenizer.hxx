@@ -1,0 +1,107 @@
+#include "tokens.hxx"
+
+BEGIN_APEXTOK_NAMESPACE
+
+using namespace apex;
+
+struct range_t {
+  const char* begin, *end;
+  explicit operator bool() const {
+    return begin < end;
+  }
+  void advance(const char* p) {
+    begin = p;
+  }
+  char advance_if(char c) {
+    return (begin < end && *begin == c) ? *begin++ : 0;
+  }
+  template<typename func_t>
+  char advance_if(func_t f) {
+    return (begin < end && f(*begin)) ? *begin++ : 0;
+  }
+  template<typename type_t>
+  void advance(const type_t& result) {
+    if(result)
+      advance(result->range.end);
+  }
+
+  char peek() const {
+    return (begin < end) ? *begin : 0; 
+  }
+  char next() {
+    return (begin < end) ? *begin++ : 0;
+  }
+
+  bool match(const char* s) const {
+    const char* p = begin;
+    while(*s && p < end && *p++ == *s) ++s;
+    return !*s;
+  }
+
+  bool match_advance(const char* s) {
+    const char* p = begin;
+    while(*s && p < end && *p++ == *s) ++s;
+    bool success = !*s;
+    if(success) begin = p;
+    return success;
+  }
+};
+
+template<typename attr_t>
+using result_t = result_template_t<attr_t, range_t>;
+
+template<typename attr_t = unused_t>
+result_t<attr_t> make_result(range_t range, attr_t attr = { }) {
+  return { range, std::move(attr) };
+}
+
+template<typename attr_t = unused_t>
+result_t<attr_t> make_result(const char* begin, const char* end, 
+  attr_t attr = { }) {
+  return make_result(range_t { begin, end }, std::move(attr));
+}
+
+// operators.cxx. Match the longest operator.
+result_t<tk_kind_t> match_operator(range_t range);
+
+struct tokenizer_t;
+
+struct lexer_t {
+  lexer_t(tokenizer_t& tokenizer) : tokenizer(tokenizer) { }
+
+  result_t<char32_t> char_literal(range_t range);
+  result_t<char32_t> c_char(range_t range);
+  
+  result_t<std::string> string_literal(range_t range);
+  result_t<char32_t> s_char(range_t range);
+
+  // Match a-zA-Z or a UCS. If digit is true, also match a digit.
+  result_t<char32_t> identifier_char(range_t range, bool digit);
+
+  // Read an extended character.
+  result_t<char32_t> ucs(range_t range);
+
+  result_t<token_t> literal(range_t range);
+  result_t<token_t> identifier(range_t range);
+  result_t<token_t> operator_(range_t range);
+  result_t<token_t> token(range_t range);
+
+  const char* skip_comment(range_t range);
+  bool advance_skip(range_t& range);
+
+
+  void throw_error(const char* pos, const char* msg);
+
+  tokenizer_t& tokenizer;
+};
+
+struct tokenizer_t {
+  std::vector<std::string> strings;
+
+  int reg_string(range_t range);
+  int find_string(range_t range) const;
+ 
+  std::vector<token_t> tokenize(range_t range);
+};
+
+END_APEXTOK_NAMESPACE
