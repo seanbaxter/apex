@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <algorithm>
+#include <sstream>
 #include "parse.hxx"
 
 // Label each independent variable?
@@ -14,26 +15,44 @@ struct ad_t {
     kind_func
   };
   kind_t kind;
-
+  
   ad_t(kind_t kind) : kind(kind) { }
+
+  template<typename derived_t>
+  derived_t* as() {
+    return derived_t::classof(this) ? 
+      static_cast<derived_t*>(this) : 
+      nullptr;
+  }
+
+  template<typename derived_t>
+  const derived_t* as() const {
+    return derived_t::classof(this) ? 
+      static_cast<const derived_t*>(this) : 
+      nullptr;
+  }
 };
 typedef std::unique_ptr<ad_t> ad_ptr_t;
 
 struct ad_tape_t : ad_t {
   // Return a value from the tape with this index.
   ad_tape_t(int index) : ad_t(kind_tape), index(index) { }
+  static bool classof(const ad_t* ad) { return kind_tape == ad->kind; }
+
   int index;
 };
 
 struct ad_literal_t : ad_t {
-  // Yield a literal value.
   ad_literal_t(double x) : ad_t(kind_literal), x(x) { }
+  static bool classof(const ad_t* ad) { return kind_literal == ad->kind; }
+
   double x;
 };
 
 struct ad_unary_t : ad_t {
   ad_unary_t(const char* op, ad_ptr_t a) :
     ad_t(kind_unary), op(op), a(std::move(a)) { }
+  static bool classof(const ad_t* ad) { return kind_unary == ad->kind; }
 
   const char* op;
   ad_ptr_t a;
@@ -42,6 +61,7 @@ struct ad_unary_t : ad_t {
 struct ad_binary_t : ad_t {
   ad_binary_t(const char* op, ad_ptr_t a, ad_ptr_t b) : 
     ad_t(kind_binary), op(op), a(std::move(a)), b(std::move(b)) { }
+  static bool classof(const ad_t* ad) { return kind_binary == ad->kind; }
 
   const char* op;
   ad_ptr_t a, b;
@@ -49,12 +69,15 @@ struct ad_binary_t : ad_t {
 
 struct ad_sq_t : ad_t {
   ad_sq_t(ad_ptr_t a) : ad_t(kind_sq), a(std::move(a)) { }
+  static bool classof(const ad_t* ad) { return kind_sq == ad->kind; }
+
   ad_ptr_t a;
 }; 
 
 struct ad_func_t : ad_t {
   ad_func_t(std::string f, ad_ptr_t a, ad_ptr_t b = nullptr) : 
     ad_t(kind_func), f(std::move(f)), a(std::move(a)), b(std::move(b)) { }
+  static bool classof(const ad_t* ad) { return kind_func == ad->kind; }
 
   std::string f;
   ad_ptr_t a, b;
@@ -575,8 +598,48 @@ int ad_builder_t::find_var(const apex::node_t* node, std::string name) {
   return it - var_names.begin();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+void print_ad(const ad_t* ad, std::ostringstream& oss, int indent) {
+  for(int i = 0; i < indent; ++i)
+    oss.write("  ", 2);
+
+  if(auto* tape = ad->as<ad_tape_t>()) {
+    oss<< "tape "<< tape->index<< "\n";
+
+  } else if(auto* literal = ad->as<ad_literal_t>()) {
+    oss<< "literal "<< literal->x<< "\n";
+
+  } else if(auto* unary = ad->as<ad_unary_t>()) {
+    oss<< "unary "<< unary->op<< "\n";
+    print_ad(unary->a.get(), oss, indent + 1);
+
+  } else if(auto* binary = ad->as<ad_binary_t>()) {
+    oss<< "binary "<< binary->op<< "\n";
+    print_ad(binary->a.get(), oss, indent + 1);
+    print_ad(binary->b.get(), oss, indent + 1);
+
+  } else if(auto* sq = ad->as<ad_sq_t>()) {
+    oss<< "sq()\n";
+    print_ad(sq->a.get(), oss, indent + 1);
+
+  } else if(auto* func = ad->as<ad_func_t>()) {
+    oss<< func->f<< "()\n";
+    if(func->a)
+      print_ad(func->a.get(), oss, indent + 1);
+    if(func->b)
+      print_ad(func->b.get(), oss, indent + 1);
+  }
+}
+
+std::string print_ad(const ad_t* ad, int indent = 0) {
+  std::ostringstream oss;
+  print_ad(ad, oss, indent);
+  return oss.str();
+}
+
 int main() {
-  std::string s = "x + 3 * z * x / sin(y + z)";
+  std::string s = "x + 3 * z * x / tan(y + z)";
   auto p = apex::parse_expression(s.c_str());
 
   ad_builder_t ad_builder;
@@ -587,6 +650,21 @@ int main() {
   ad_builder.tape.resize(3);
 
   ad_builder.recurse(p.root.get());
+
+  // TODO: Print each node.
+  for(int i = ad_builder.var_names.size(); i < ad_builder.tape.size(); ++i) {
+    const auto& item = ad_builder.tape[i];
+
+    printf("tape %d:\n", (int)i);
+
+    // Print the value.
+    printf("  value =\n%s", print_ad(item.val.get(), 2).c_str());
+
+    // Print each gradient.
+    for(const auto& grad : item.grads)
+      printf("  grad %d =\n%s", grad.index, 
+        print_ad(grad.coef.get(), 2).c_str());
+  }
 
   return 0;
 }
