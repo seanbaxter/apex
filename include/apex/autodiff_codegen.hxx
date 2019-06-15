@@ -32,13 +32,34 @@ inline double sq(double x) {
     );
 
   } else if(const auto* func = ad->as<ad_func_t>()) {
-    /*
-    @emit return @expression(func->f)(
-      // Evaluate and expand the arguments parameter pack.
-      autodiff_expr(func->args[__integer_pack(func->args.size())].get())...
-    );
-    */
-    @emit return @expression(func->f)(autodiff_expr(func->args[0].get()));
+    // Evaluate and expand the arguments parameter pack.
+
+    // TODO: Can't currently expand a parameter pack through a macro 
+    // invocation. Why not? Because we expand the macro immediately so we
+    // can learn its return type, which we need to continue parsing the
+    // expression. But if the pack expansion is outside of the macro expansion,
+    // we'll need to expand the macro prior to even parsing the expansion. 
+
+    // Two paths forward:
+    // 1) Speculatively expand the macro expansion.
+    // 2) Make the macro expansion a dependent expression when its passed an
+    //    unexpanded pack argument. Parse through to the end of the statement,
+    //    then 
+
+
+    // That feature will eliminate the need to switch over the
+    // argument counts.
+     @emit return @expression(func->f)(
+       autodiff_expr(func->args[__integer_pack(func->args.size())].get())...
+     );
+
+   // if(1 == func->args.size()) {
+   //   @emit return @expression(func->f)(autodiff_expr(func->args[0].get()));
+
+   // } else if(2 == func->args.size()) {
+   //   @emit return @expression(func->f)(autodiff_expr(func->args[0].get()),
+   //     autodiff_expr(func->args[1].get()));
+   // }
   }
 }
 
@@ -106,11 +127,9 @@ template<typename... args_t>
   @meta apex::ad_builder_t __ad_builder;
   @meta __ad_builder.process(__fmt, __var_names);
 
-  @meta std::vector<std::string> varnames = __var_names;
-
   return autodiff_eval(
     __ad_builder, 
-    @expression(varnames[__integer_pack(__var_names.size())])...
+    @expression(__var_names[__integer_pack(__var_names.size())])...
   );
 }
 

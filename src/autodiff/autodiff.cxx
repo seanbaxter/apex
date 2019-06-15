@@ -119,10 +119,10 @@ int ad_builder_t::exp(int a) {
   return push_item(std::move(item));
 }
 
-int ad_builder_t::ln(int a) {
+int ad_builder_t::log(int a) {
   // grad (ln a) = grad a / a
   item_t item { };
-  item.val = func("std::ln", val(a));
+  item.val = func("std::log", val(a));
   item.grads.push_back({
     a,
     rcp(val(a))
@@ -201,7 +201,7 @@ int ad_builder_t::pow(int a, int b) {
   item.grads.push_back({
     // d/dx (a**b) = a**b ln a db/dx
     b,
-    mul(func("std::pow", val(a), val(b)), func("std::ln", val(a)))
+    mul(func("std::pow", val(a), val(b)), func("std::log", val(a)))
   });
   return push_item(std::move(item));
 }
@@ -318,7 +318,7 @@ int ad_builder_t::recurse(const node_call_t* node) {
   GEN_CALL_1(sq)
   GEN_CALL_1(sqrt)
   GEN_CALL_1(exp)
-  GEN_CALL_1(ln)
+  GEN_CALL_1(log)
   GEN_CALL_1(sin)
   GEN_CALL_1(cos)
   GEN_CALL_1(tan)

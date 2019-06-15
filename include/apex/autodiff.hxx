@@ -91,7 +91,7 @@ struct ad_builder_t {
   int sq(int a);
   int sqrt(int a);
   int exp(int a);
-  int ln(int a);
+  int log(int a);
   int sin(int a);
   int cos(int a);
   int tan(int a);
