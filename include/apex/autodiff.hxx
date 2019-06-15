@@ -1,5 +1,5 @@
-#include "util.hxx"
-#include "parse.hxx"
+#include <apex/util.hxx>
+#include <apex/parse.hxx>
 
 BEGIN_APEX_NAMESPACE
 
@@ -13,7 +13,6 @@ struct ad_t {
     kind_literal,
     kind_unary,
     kind_binary,
-    kind_sq,
     kind_func
   };
   kind_t kind;
@@ -69,20 +68,12 @@ struct ad_binary_t : ad_t {
   ad_ptr_t a, b;
 };
 
-struct ad_sq_t : ad_t {
-  ad_sq_t(ad_ptr_t a) : ad_t(kind_sq), a(std::move(a)) { }
-  static bool classof(const ad_t* ad) { return kind_sq == ad->kind; }
-
-  ad_ptr_t a;
-}; 
-
 struct ad_func_t : ad_t {
-  ad_func_t(std::string f, ad_ptr_t a, ad_ptr_t b = nullptr) : 
-    ad_t(kind_func), f(std::move(f)), a(std::move(a)), b(std::move(b)) { }
+  ad_func_t(std::string f) : ad_t(kind_func), f(std::move(f)) { }
   static bool classof(const ad_t* ad) { return kind_func == ad->kind; }
 
   std::string f;
-  ad_ptr_t a, b;
+  std::vector<ad_ptr_t> args;
 };
 
 struct ad_builder_t {
@@ -129,6 +120,9 @@ struct ad_builder_t {
   int recurse(const parse::node_binary_t* node);
   int recurse(const parse::node_call_t* node);
   int recurse(const parse::node_t* node);
+
+  void process(const std::string& formula, std::vector<std::string> var_names);
+  void process(const parse::node_t* node, std::vector<std::string> var_names);
 
   void throw_error(const parse::node_t* node, const char* msg);
 

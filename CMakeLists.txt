@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.5.1)
 project(apex)
 
 set(CMAKE_CXX_STANDARD 17)
-include_directories(include/apex)
+include_directories(include)
 
 set(SOURCE_FILES
   # apex.cxx

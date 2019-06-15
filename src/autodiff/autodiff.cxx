@@ -1,4 +1,4 @@
-#include "autodiff.hxx"
+#include <apex/autodiff.hxx>
 #include <sstream>
 #include <algorithm>
 
@@ -41,6 +41,7 @@ int ad_builder_t::sub(int a, int b) {
 }
 
 int ad_builder_t::mul(int a, int b) {
+  assert(a != b);
   // grad (a * b) = a grad b + b grad a.
   item_t item { };
   item.val = mul(val(a), val(b));
@@ -380,6 +381,21 @@ int ad_builder_t::recurse(const node_t* node) {
   return result;
 }
 
+void ad_builder_t::process(const node_t* node, 
+  std::vector<std::string> var_names) {
+
+  this->var_names = std::move(var_names);
+  tape.resize(this->var_names.size());
+  recurse(node);
+}
+
+void ad_builder_t::process(const std::string& formula, 
+  std::vector<std::string> var_names) {
+
+  auto p = parse::parse_expression(formula.c_str()); 
+  process(p.root.get(), std::move(var_names));
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 ad_ptr_t ad_builder_t::val(int index) {
@@ -412,11 +428,14 @@ ad_ptr_t ad_builder_t::rcp(ad_ptr_t a) {
 }
 
 ad_ptr_t ad_builder_t::sq(ad_ptr_t a) {
-  return std::make_unique<ad_sq_t>(std::move(a));
+  return func("apex::sq", std::move(a));
 }
 
 ad_ptr_t ad_builder_t::func(const char* f, ad_ptr_t a, ad_ptr_t b) {
-  return std::make_unique<ad_func_t>(f, std::move(a), std::move(b));
+  auto node = std::make_unique<ad_func_t>(f);
+  node->args.push_back(std::move(a));
+  if(b) node->args.push_back(std::move(b));
+  return node;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -453,16 +472,10 @@ void print_ad(const ad_t* ad, std::ostringstream& oss, int indent) {
     print_ad(binary->a.get(), oss, indent + 1);
     print_ad(binary->b.get(), oss, indent + 1);
 
-  } else if(auto* sq = ad->as<ad_sq_t>()) {
-    oss<< "sq()\n";
-    print_ad(sq->a.get(), oss, indent + 1);
-
   } else if(auto* func = ad->as<ad_func_t>()) {
     oss<< func->f<< "()\n";
-    if(func->a)
-      print_ad(func->a.get(), oss, indent + 1);
-    if(func->b)
-      print_ad(func->b.get(), oss, indent + 1);
+    for(const auto& arg : func->args)
+      print_ad(arg.get(), oss, indent + 1);
   }
 }
 

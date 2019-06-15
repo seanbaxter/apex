@@ -1,4 +1,4 @@
-#include "tokenizer.hxx"
+#include <apex/tokenizer.hxx>
 #include <climits>
 
 BEGIN_APEX_NAMESPACE
