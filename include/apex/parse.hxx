@@ -61,6 +61,8 @@ enum expr_op_t : uint8_t {
   expr_op_sequence,
 };
 
+extern const char* expr_op_names[];
+
 namespace parse {
 
 struct range_t {
@@ -102,6 +104,10 @@ template<typename attr_t = unused_t>
 result_t<attr_t> make_result(token_it begin, token_it end, attr_t attr = { }) {
   return make_result(range_t { begin, end }, std::move(attr));
 }
+
+struct parse_exception_t : std::runtime_error {
+  parse_exception_t(const std::string& err) : std::runtime_error(err) { }
+};
 
 struct node_t {
   enum kind_t {

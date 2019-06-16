@@ -49,21 +49,21 @@ inline double sq(double x) {
 
     // That feature will eliminate the need to switch over the
     // argument counts.
-     @emit return @expression(func->f)(
-       autodiff_expr(func->args[__integer_pack(func->args.size())].get())...
-     );
+    // @emit return @expression(func->f)(
+    //   autodiff_expr(func->args[__integer_pack(func->args.size())].get())...
+    // );
 
-   // if(1 == func->args.size()) {
-   //   @emit return @expression(func->f)(autodiff_expr(func->args[0].get()));
+    if(1 == func->args.size()) {
+      @emit return @expression(func->f)(autodiff_expr(func->args[0].get()));
 
-   // } else if(2 == func->args.size()) {
-   //   @emit return @expression(func->f)(autodiff_expr(func->args[0].get()),
-   //     autodiff_expr(func->args[1].get()));
-   // }
+    } else if(2 == func->args.size()) {
+      @emit return @expression(func->f)(autodiff_expr(func->args[0].get()),
+        autodiff_expr(func->args[1].get()));
+    }
   }
 }
 
-@macro void autodiff_grad(int index, int parent) {
+@macro void autodiff_tape(int index, int parent) {
   @meta if(index < num_vars) {
     // We've hit a terminal, which corresponds to an independent variable.
     // Increment the gradient array by the coefficient at parent.
@@ -74,7 +74,7 @@ inline double sq(double x) {
     @meta for(const auto& g : ad_builder.tape[index].grads) {
       // Evaluate the coefficient into the stack.
       coef[index] = coef[parent] * autodiff_expr(g.coef.get());
-      @macro autodiff_grad(g.index, index);
+      @macro autodiff_tape(g.index, index);
     }
   }
 }
@@ -114,19 +114,23 @@ template<typename... args_t>
     coef[root] = autodiff_expr(g.coef.get());
 
     // Recurse on the child.
-    @macro autodiff_grad(g.index, root);
+    @macro autodiff_tape(g.index, root);
   }
 
   return std::move(grad);
 }
 
-@macro auto solve_autodiff(std::string __fmt, 
+@macro auto autodiff_grad(std::string __fmt, 
   std::vector<std::string> __var_names) {
 
   // Construct the autodiff builder.
   @meta apex::ad_builder_t __ad_builder;
   @meta __ad_builder.process(__fmt, __var_names);
 
+  // Generate and call into a metafunction. The meta argument is the
+  // autodiff builder. The real arguments are the values of each of the
+  // independent variables, evaluated in the scope of solve_autodiff's 
+  // caller and supplied to autodiff_eval using parameter pack expansion. 
   return autodiff_eval(
     __ad_builder, 
     @expression(__var_names[__integer_pack(__var_names.size())])...

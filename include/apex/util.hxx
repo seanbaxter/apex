@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 #include <cassert>
+#include <string>
 
 #define BEGIN_APEX_NAMESPACE namespace apex {
 #define END_APEX_NAMESPACE }
@@ -16,6 +17,10 @@ int to_utf8(char* s, int ucs);
 // Returns the number of code-units consumed and the value of the character.
 // 0 indicates error.
 std::pair<int, int> from_utf8(const char* s);
+
+// sprintf into a std::string
+std::string format(const char* pattern, ...);
+std::string vformat(const char* pattern, va_list args);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Reusable types for result_t<> returns. Combines range and attribute.

@@ -36,7 +36,6 @@ struct ad_t {
 typedef std::unique_ptr<ad_t> ad_ptr_t;
 
 struct ad_tape_t : ad_t {
-  // Return a value from the tape with this index.
   ad_tape_t(int index) : ad_t(kind_tape), index(index) { }
   static bool classof(const ad_t* ad) { return kind_tape == ad->kind; }
 
@@ -124,7 +123,7 @@ struct ad_builder_t {
   void process(const std::string& formula, std::vector<std::string> var_names);
   void process(const parse::node_t* node, std::vector<std::string> var_names);
 
-  void throw_error(const parse::node_t* node, const char* msg);
+  void throw_error(const parse::node_t* node, const char* fmt, ...);
 
   struct item_t {
     // NOTE: Expression to compute value in terms of other slots and 

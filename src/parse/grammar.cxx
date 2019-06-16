@@ -1,8 +1,69 @@
 #include <apex/parse.hxx>
 #include <stack>
 #include <cstring>
+#include <cstdarg>
 
 BEGIN_APEX_NAMESPACE
+
+
+const char* expr_op_names[] {
+  "none",
+
+  // Postfix
+  "++",
+  "--",
+
+  // Prefix operators
+  "++",
+  "--",
+  "~",
+  "!",
+  "+",
+  "-",
+  "&",
+  "*",
+
+  // Pointer-to-member 
+  ".*",
+  "->*",
+
+  // Binary operators
+  "*",
+  "/",
+  "%",
+  "+",
+  "-",
+  "<<",
+  ">>",
+  "<",
+  ">",
+  "<=",
+  ">=",
+  "==",
+  "!=",
+  "&=",
+  "^=",
+  "|=",
+  "&&",
+  "||",
+
+  // Assignment operators.
+  "=",
+  "*=",
+  "/=",
+  "%=",
+  "+=",
+  "-=",
+  "<<=",
+  ">>=",
+  "&="
+  "|=",
+  "^=",
+
+  "?:",
+  ","
+};
+
 
 namespace parse {
 
@@ -41,7 +102,7 @@ struct grammar_t {
   result_t<node_ptr_t> initializer_clause(range_t range, bool expect);
   result_t<node_list_t> init_list(range_t range);
 
-  void throw_error(token_it pos, const char* msg);
+  void throw_error(token_it pos, const char* fmt, ...);
   void unexpected_token(token_it pos, const char* msg);
 
   const tok::tokenizer_t& tokenizer;
@@ -719,16 +780,20 @@ result_t<node_list_t> grammar_t::init_list(range_t range) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void grammar_t::throw_error(token_it pos, const char* msg) {
-  printf("error thrown %s\n", msg);
-  abort();
+void grammar_t::throw_error(token_it pos, const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  std::string msg = vformat(fmt, args);
+  va_end(args);
+
+  throw parse_exception_t(msg);
 }
 
 void grammar_t::unexpected_token(token_it pos, const char* msg) {
-  printf("unexpected token in %s\n", msg);
-  abort();
-
+  throw parse_exception_t(msg);
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////
 

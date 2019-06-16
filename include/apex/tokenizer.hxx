@@ -115,8 +115,21 @@ struct tokenizer_t {
   std::vector<uint64_t> ints;
   std::vector<long double> floats;
 
+  // Byte offset for each line start.
+  std::vector<int> line_offsets;
+
+  // Original text we parsed.
+  std::vector<char> text;
+
   int reg_string(range_t range);
   int find_string(range_t range) const;
+
+  // Return 0-indexed line and column offsets for the token at
+  // the specified byte offset. This performs UCS decoding to support
+  // multibyte characters.
+  int token_line(int offset) const;
+  int token_col(int offset, int line) const;
+  std::pair<int, int> token_linecol(int offset) const;
  
   std::vector<token_t> tokenize(range_t range);
 };

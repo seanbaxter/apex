@@ -1,5 +1,6 @@
 #include <apex/autodiff.hxx>
 #include <sstream>
+#include <cstdarg>
 #include <algorithm>
 
 BEGIN_APEX_NAMESPACE
@@ -269,7 +270,7 @@ int ad_builder_t::recurse(const node_unary_t* node) {
       break;
 
     default:
-      throw_error(node, "unsupported operator XXX");
+      throw_error(node, "unsupported unary %s", expr_op_names[node->op]);
   } 
   return c;
 }
@@ -297,7 +298,7 @@ int ad_builder_t::recurse(const node_binary_t* node) {
       break;
 
     default:
-      throw_error(node, "unsupported operator XXX");
+      throw_error(node, "unsupported binary %s", expr_op_names[node->op]);
   }
   return c;
 }
@@ -340,7 +341,7 @@ int ad_builder_t::recurse(const node_call_t* node) {
     return norm(args.data(), args.size());
 
   } else {
-    throw_error(node, "unknown function XXX");
+    throw_error(node, "unknown function %s", func_name.c_str());
   }
 }
 
@@ -440,7 +441,12 @@ ad_ptr_t ad_builder_t::func(const char* f, ad_ptr_t a, ad_ptr_t b) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void ad_builder_t::throw_error(const node_t* node, const char* msg) {
+void ad_builder_t::throw_error(const node_t* node, const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  std::string msg = vformat(fmt, args);
+  va_end(args);
+
   throw ad_exeption_t(msg);
 }
 

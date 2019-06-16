@@ -1,4 +1,5 @@
 #include <apex/tokenizer.hxx>
+#include <algorithm>
 
 BEGIN_APEX_NAMESPACE
 
@@ -38,6 +39,37 @@ std::vector<apex::token_t> tokenizer_t::tokenize(range_t range) {
 
   return tokens;
 }
+
+int tokenizer_t::token_line(int offset) const {
+  // Binary search to find the line for this byte offset.
+  auto it = std::upper_bound(line_offsets.begin(), line_offsets.end(), offset);
+  int line = it - line_offsets.begin() - 1;
+  return line;
+}
+
+int tokenizer_t::token_col(int offset, int line) const {
+  // Walk forward, decoding UTF-8 and count the column adjustment to reach 
+  // the offset from the line offset.
+  int col = 0;
+  int pos = line_offsets[line];
+  while(pos < offset) {
+    std::pair<int, int> ucs = from_utf8(text.data() + pos);
+
+    // Advance by the number of bytes in the character.
+    pos += ucs.first;
+
+    // Advance by one column.
+    ++col;
+  }
+  return col;
+}
+
+std::pair<int, int> tokenizer_t::token_linecol(int offset) const {
+  int line = token_line(offset);
+  int col = token_col(offset, line);
+  return { line, col };
+}
+
 
 } // namespace tok
 

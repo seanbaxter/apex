@@ -7,6 +7,7 @@ include_directories(include)
 set(SOURCE_FILES
   # apex.cxx
   src/util/utf.cxx
+  src/util/format.cxx
 
   src/parse/grammar.cxx
 
