@@ -2,7 +2,7 @@
 
 ```cpp
 std::array<double, 2> my_grad(double x, double y) {
-  return apex::autodiff_grad("sq(x / y) + sin(x)", { "x", "y" });
+  return apex::autodiff_grad("sq(x / y) * sin(x)", { "x", "y" });
 }
 ```
 
