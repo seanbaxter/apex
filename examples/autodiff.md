@@ -84,7 +84,7 @@ However, the separation of autodiff intelligence and code generation permits sel
 
 ## The autodiff code generator
 
-[**autodiff_codegen.hxx**](../include/apex/autodigg_codegen.hxx)
+[**autodiff_codegen.hxx**](../include/apex/autodiff_codegen.hxx)
 ```cpp
 @macro auto autodiff_grad(std::string __fmt, 
   std::vector<std::string> __var_names) {
