@@ -42,7 +42,6 @@ int ad_builder_t::sub(int a, int b) {
 }
 
 int ad_builder_t::mul(int a, int b) {
-  assert(a != b);
   // grad (a * b) = a grad b + b grad a.
   item_t item { };
   item.val = mul(val(a), val(b));

@@ -13,7 +13,7 @@ This illustrates shared object library development. There are three things you c
 1. No operator overloading.
 1. No performance compromise.
 
-Do all your dev in an ordinary C++/Circle shared object project. Call into this shared object library during source translation and capture the returned IR. Lower the IR to code using Circle macros. This is a new way forward for DSLs in C++.
+Do all your development in an ordinary C++/Circle shared object project. Call into this shared object library during source translation and capture the returned IR. Lower the IR to code using Circle macros. This is a new way forward for DSLs in C++.
 
 ## Expression templates
 
@@ -84,7 +84,7 @@ However, the separation of autodiff intelligence and code generation permits sel
 
 ## The autodiff code generator
 
-**autodiff_codegen.hxx**
+[**autodiff_codegen.hxx**](../include/apex/autodigg_codegen.hxx)
 ```cpp
 @macro auto autodiff_grad(std::string __fmt, 
   std::vector<std::string> __var_names) {
@@ -159,7 +159,7 @@ Although the values in the tape will be used again during the top-down gradient 
 
 The autodiff IR needs to be comprehensive enough to encode any operations found in the expression to differentiate. We chose the design for easy lowering using intrinsics like `@op` and `@expression` to generate code from strings.
 
-**autodiff.hxx**
+[**autodiff.hxx**](../include/apex/autodiff.hxx)
 ```cpp
 struct ad_t {
   enum kind_t {
@@ -232,7 +232,7 @@ struct ad_func_t : ad_t {
 
 The autodiff code in `libapex.so` generates `ad_t` trees into the tape data structure. Each tree node is allocated on the heap and stored in an `std::unique_ptr`. Because the shared object is loaded into the address space of the compiler, the result object of the foreign-function library call is fully accessible to meta code in the translation unit by way of the Circle interpreter. 
 
-**autodiff_codegen.hxx**
+[**autodiff_codegen.hxx**](../include/apex/autodiff_codegen.hxx)
 ```cpp
 @macro auto autodiff_expr(const ad_t* ad) {
   @meta+ if(const auto* tape = ad->as<ad_tape_t>()) {
@@ -274,5 +274,3 @@ The expression macro `autodiff_expr` recurses an `ad_t` tree and switches on eac
 * Function call nodes have the _name_ of the function stored as a string. When evaluated with `@expression`, name lookup is performed on the qualified name (eg, "std::cos") and returns a function lvalue or overload set.
 
 Each tape item (corresponding to sparse matrix row) includes one `ad_t` tree that renders the value of the subexpression, and one `ad_t` per child node in the DAG to compute partial derivatives. The values are computed in bottom-up order (forward through the tape), and the partial derivatives are computed in top-down order (reverse mode through the tape). An optimization potential may be exposed by evaluating all partial derivatives in parallel (there are no data dependencies between them), and using a parallelized sparse back-propagation code to concatenate the partial derivatives. Again, these choices should be made by the intelligence of the library, which is well-separated from the metaprogramming concerns of the code generator.
-
-## 
