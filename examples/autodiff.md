@@ -1,5 +1,20 @@
 # Reverse-mode automatic differentiation with Circle and Apex
 
+```cpp
+std::array<double, 2> my_grad(double x, double y) {
+  return apex::autodiff_grad("sq(x / y) + sin(x)", { "x", "y" });
+}
+```
+
+This example shows how to leverage the Apex DSL library to implement reverse-mode automatic differentation. The expression to differentiate is passed in as a compile-time string, and the primary inputs are provided as a vector of strings.
+
+This illustrates shared object library development. There are three things you can count on:
+1. No template metaprogramming.
+1. No operator overloading.
+1. No performance compromise.
+
+Do all your dev in an ordinary C++/Circle shared object project. Call into this shared object library during source translation and capture the returned IR. Lower the IR to code using Circle macros. This is a new way forward for DSLs in C++.
+
 ## Expression templates
 
 In Standard C++, code must either be included in textual form or compiled to binary and linked with the program. Only the former form is generic--template libraries may be specialized to solve an application-specific problem.
@@ -12,7 +27,7 @@ Expression templates are extremely difficult to write, error messages are opaque
 
 Circle's integrated interpreter and code reflection mechanisms establish a larger design space for libraries. _What is a library with Circle?_ **Any code that provides a service**.
 
-As demonstrated with the [Tensor Compiler example](https://github.com/seanbaxter/circle/blob/master/gems/taco.md), a Circle program can dynamically link to a shared object library _at compile time_, use that library to solve a difficult problem (tensor contraction scheduling), then lower the physical representation of that solution (the intermediate representation) to code using Circle's macro system.
+As demonstrated with the [Tensor Compiler example](https://github.com/seanbaxter/circle/blob/master/gems/taco.md), a Circle program can dynamically link to a shared object library _at compile time_, use that library to solve an intricate problem (tensor contraction scheduling), then lower the resultin solution (the intermediate representation) to code using Circle's macro system.
 
 Apex is a collection of services to help programmers develop this new form of library. Currently it includes a tokenizer and parser for a C++ subset (called the Apex grammar), as well as a reverse-mode automatic differentation package that serves as both an example for building new libraries and an ingredient for additional numerical computing development.
 
@@ -37,7 +52,7 @@ A strength of this approach is that it requires very little Circle code, only a 
 #include <apex/autodiff_codegen.hxx>
 
 std::array<double, 2> my_grad(double x, double y) {
-	return apex::autodiff_grad("sq(x / y) * sin(x)", { "x", "y" });
+  return apex::autodiff_grad("sq(x / y) * sin(x)", { "x", "y" });
 }
 
 int main() {
