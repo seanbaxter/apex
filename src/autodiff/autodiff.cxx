@@ -341,7 +341,7 @@ int ad_builder_t::recurse(const node_call_t* node) {
     return norm(args.data(), args.size());
 
   } else {
-    throw_error(node, "unknown function %s", func_name.c_str());
+    throw_error(node, "unknown function '%s'", func_name.c_str());
   }
 }
 
@@ -382,19 +382,20 @@ int ad_builder_t::recurse(const node_t* node) {
   return result;
 }
 
-void ad_builder_t::process(const node_t* node, 
+void ad_builder_t::process(const parse_t& parse, 
   std::vector<std::string> var_names) {
 
+  tokenizer = &parse.tokenizer;
   this->var_names = std::move(var_names);
   tape.resize(this->var_names.size());
-  recurse(node);
+  recurse(parse.root.get());
 }
 
 void ad_builder_t::process(const std::string& formula, 
   std::vector<std::string> var_names) {
 
   auto p = parse::parse_expression(formula.c_str()); 
-  process(p.root.get(), std::move(var_names));
+  process(p, std::move(var_names));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -442,10 +443,25 @@ ad_ptr_t ad_builder_t::func(const char* f, ad_ptr_t a, ad_ptr_t b) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void ad_builder_t::throw_error(const node_t* node, const char* fmt, ...) {
+  // Get the user's error message.
   va_list args;
   va_start(args, fmt);
   std::string msg = vformat(fmt, args);
   va_end(args);
+
+  // If the tokenizer is available, print a location message.
+  if(tokenizer) {
+    std::pair<int, int> linecol = tokenizer->token_linecol(node->loc);
+    msg = format(
+      "autodiff formula \"%s\"\n"
+      "line %d col %d\n"
+      "%s", 
+      tokenizer->text.c_str(),
+      linecol.first + 1,
+      linecol.second + 1,
+      msg.c_str()
+    );
+  }
 
   throw ad_exeption_t(msg);
 }
@@ -453,7 +469,7 @@ void ad_builder_t::throw_error(const node_t* node, const char* fmt, ...) {
 int ad_builder_t::find_var(const node_t* node, std::string name) {
   auto it = std::find(var_names.begin(), var_names.end(), name);
   if(var_names.end() == it)
-    throw_error(node, "unknown variable name");
+    throw_error(node, "unknown variable '%s'", name.c_str());
   return it - var_names.begin();
 }
 

@@ -121,7 +121,7 @@ struct ad_builder_t {
   int recurse(const parse::node_t* node);
 
   void process(const std::string& formula, std::vector<std::string> var_names);
-  void process(const parse::node_t* node, std::vector<std::string> var_names);
+  void process(const parse::parse_t& parse, std::vector<std::string> var_names);
 
   void throw_error(const parse::node_t* node, const char* fmt, ...);
 
@@ -157,8 +157,9 @@ struct ad_builder_t {
 
   int find_var(const parse::node_t* node, std::string name);
 
-  // Text of the AD formula.
-  std::string text;
+  // If the tokenizer is provided we can print error messages that are
+  // line/col specific.
+  const tok::tokenizer_t* tokenizer = nullptr;
 
   // Each of the independent variables in gradient order.
   std::vector<std::string> var_names;

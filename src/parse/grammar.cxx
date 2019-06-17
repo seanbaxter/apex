@@ -5,7 +5,6 @@
 
 BEGIN_APEX_NAMESPACE
 
-
 const char* expr_op_names[] {
   "none",
 
@@ -104,6 +103,8 @@ struct grammar_t {
 
   void throw_error(token_it pos, const char* fmt, ...);
   void unexpected_token(token_it pos, const char* msg);
+
+  source_loc_t loc(token_it it) const;
 
   const tok::tokenizer_t& tokenizer;
 };
@@ -227,7 +228,7 @@ result_t<node_ptr_t> grammar_t::entity(range_t range, bool expect) {
   result_t<node_ptr_t> result;
   token_it begin = range.begin;
   if(token_t token = range.advance_if(tk_ident)) {
-    auto ident = std::make_unique<node_ident_t>();
+    auto ident = std::make_unique<node_ident_t>(loc(begin));
     ident->s = tokenizer.strings[token.store];
     result = make_result(begin, range.begin, std::move(ident));
 
@@ -243,32 +244,32 @@ result_t<node_ptr_t> grammar_t::literal(range_t range) {
   switch(token_t token = range.next()) {
     case tk_int: {
       uint64_t ui = tokenizer.ints[token.store];
-      node = std::make_unique<node_int_t>(ui);
+      node = std::make_unique<node_int_t>(ui, loc(begin));
       break;
     }
 
     case tk_float: {
       long double ld = tokenizer.floats[token.store];
-      node = std::make_unique<node_float_t>(ld);
+      node = std::make_unique<node_float_t>(ld, loc(begin));
       break;
     }
 
     case tk_char:
-      node = std::make_unique<node_char_t>((char32_t)token.store);
+      node = std::make_unique<node_char_t>((char32_t)token.store, loc(begin));
       break;
 
     case tk_string: {
       const std::string& s = tokenizer.strings[token.store];
-      node = std::make_unique<node_string_t>(s);
+      node = std::make_unique<node_string_t>(s, loc(begin));
       break;    
     }
 
     case tk_kw_false:
-      node = std::make_unique<node_bool_t>(false);
+      node = std::make_unique<node_bool_t>(false, loc(begin));
       break;
 
     case tk_kw_true:
-      node = std::make_unique<node_bool_t>(true);
+      node = std::make_unique<node_bool_t>(true, loc(begin));
       break;
 
     default:
@@ -331,7 +332,7 @@ result_t<node_ptr_t> grammar_t::postfix_operator(range_t range,
   switch(token_t token = range.next()) {
     case tk_sym_minusminus: {
     case tk_sym_plusplus:
-      auto unary = std::make_unique<node_unary_t>();
+      auto unary = std::make_unique<node_unary_t>(loc(begin));
       unary->op = tk_sym_plusplus == token ? 
         expr_op_inc_post : expr_op_dec_post;
       unary->a = std::move(node);
@@ -349,7 +350,7 @@ result_t<node_ptr_t> grammar_t::postfix_operator(range_t range,
       auto paren = paren_initializer(range);
       range.advance(paren);
 
-      auto call = std::make_unique<node_call_t>();
+      auto call = std::make_unique<node_call_t>(loc(begin));
       call->f = std::move(node);
       call->args = std::move(paren->attr);
       node = std::move(call);
@@ -398,7 +399,7 @@ result_t<node_ptr_t> grammar_t::unary_expression(range_t range, bool expect) {
     auto rhs = unary_expression(range, true);
     range.advance(rhs);
 
-    auto unary = std::make_unique<node_unary_t>();
+    auto unary = std::make_unique<node_unary_t>(loc(begin));
     unary->op = op->attr;
     unary->a = std::move(rhs->attr);
     result = make_result(begin, range.begin, std::move(unary));
@@ -498,7 +499,7 @@ result_t<node_ptr_t> grammar_t::binary_expression(range_t range, bool expect) {
 
       if(lhs.desc.prec >= rhs.desc.prec) {
         // Fold the two right-most expressions together.
-        auto binary = std::make_unique<node_binary_t>();
+        auto binary = std::make_unique<node_binary_t>(lhs.loc);
         binary->op = lhs.desc.op;
         binary->a = std::move(lhs.node);
         binary->b = std::move(rhs.node);
@@ -519,7 +520,7 @@ result_t<node_ptr_t> grammar_t::binary_expression(range_t range, bool expect) {
   result_t<node_ptr_t> result;
   if(auto lhs = unary_expression(range, false)) {
     range.advance(lhs);
-    stack.push_back({ std::move(lhs->attr) });
+    stack.push_back({ std::move(lhs->attr), loc(lhs->range.begin) });
 
     while(true) {
       item_t& item = stack.back();
@@ -567,7 +568,7 @@ result_t<node_ptr_t> grammar_t::logical_and_expression(range_t range,
       auto rhs = binary_expression(range, true);
       range.advance(rhs);
 
-      auto binary = std::make_unique<node_binary_t>();
+      auto binary = std::make_unique<node_binary_t>(loc(begin));
       binary->op = expr_op_log_and;
       binary->a = std::move(result->attr);
       binary->b = std::move(rhs->attr);
@@ -592,7 +593,7 @@ result_t<node_ptr_t> grammar_t::logical_or_expression(range_t range,
       auto rhs = logical_and_expression(range, true);
       range.advance(rhs);
 
-      auto binary = std::make_unique<node_binary_t>();
+      auto binary = std::make_unique<node_binary_t>(loc(begin));
       binary->op = expr_op_log_or;
       binary->a = std::move(result->attr);
       binary->b = std::move(rhs->attr);
@@ -642,7 +643,7 @@ result_t<node_ptr_t> grammar_t::assignment_expression(range_t range,
       auto b = initializer_clause(range, true);
       range.advance(b);
 
-      auto assign = std::make_unique<node_assign_t>();
+      auto assign = std::make_unique<node_assign_t>(loc(begin));
       assign->a = std::move(a->attr);
       assign->b = std::move(b->attr);
 
@@ -659,7 +660,7 @@ result_t<node_ptr_t> grammar_t::assignment_expression(range_t range,
       auto c = assignment_expression(range, true);
       range.advance(c);
 
-      auto ternary = std::make_unique<node_ternary_t>();
+      auto ternary = std::make_unique<node_ternary_t>(loc(begin));
       ternary->a = std::move(a->attr);
       ternary->b = std::move(b->attr);
       ternary->c = std::move(c->attr);
@@ -684,7 +685,7 @@ result_t<node_ptr_t> grammar_t::expression(range_t range, bool expect) {
       auto expr2 = assignment_expression(range, true);
       range.advance(expr2);
 
-      auto binary = std::make_unique<node_binary_t>();
+      auto binary = std::make_unique<node_binary_t>(loc(begin));
       binary->op = expr_op_sequence;
       binary->a = std::move(expr->attr);
       binary->b = std::move(expr2->attr);
@@ -793,6 +794,10 @@ void grammar_t::unexpected_token(token_it pos, const char* msg) {
   throw parse_exception_t(msg);
 }
 
+source_loc_t grammar_t::loc(token_it it) const {
+  return { (int)(it - tokenizer.tokens.data()) };
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -800,14 +805,13 @@ void grammar_t::unexpected_token(token_it pos, const char* msg) {
 parse_t parse_expression(const char* begin, const char* end) {
   // Tokenize the input.
   parse_t parse;
-  parse.tokens = parse.tokenizer.tokenize({ begin, end });
+  parse.tokenizer.text = std::string(begin, end);
+  parse.tokenizer.tokenize();
 
   // Parse the tokens.
   grammar_t g { parse.tokenizer };
-  range_t range { 
-    parse.tokens.data(), 
-    parse.tokens.data() + parse.tokens.size() 
-  };
+  range_t range = parse.tokenizer.token_range();
+
   auto expr = g.expression(range, true);
   range.advance(expr);
   if(range)

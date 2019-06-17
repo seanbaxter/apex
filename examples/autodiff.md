@@ -4,7 +4,7 @@
 
 In Standard C++, code must either be included in textual form or compiled to binary and linked with the program. Only the former form is generic--template libraries may be specialized to solve an application-specific problem.
 
-EDSLs have been attempted by the C++ community for almost twenty years. In Standard C++, the [expression template](link)idiom is used to repurpose the C++ syntax as a domain-specific language. Operator overloading and template metaprogramming are combined to capture the result of a subexpression as a _type_. For example, if either terminal in the subexpression `a + b` is an EDSL type, the result object of the addition expression is a type that includes details of the operator and of each operand. For example, `op_add_t<left_type, right_type>`, where the template arguments are EDSL operator types that recursively specify their operand types. The type of the result object for the full expression contains the information of a parse tree over that same expression input. The expression template may be traversed (as if one were traversing a parse tree) and some calculation performed at each node.
+EDSLs have been attempted by the C++ community for almost twenty years. In Standard C++, the [expression template](https://en.wikipedia.org/wiki/Expression_templates) idiom is used to repurpose the C++ syntax as a domain-specific language. Operator overloading and template metaprogramming are combined to capture the result of a subexpression as a _type_. For example, if either terminal in the subexpression `a + b` is an EDSL type, the result object of the addition expression is a type that includes details of the operator and of each operand. For example, `op_add_t<left_type, right_type>`, where the template arguments are EDSL operator types that recursively specify their operand types. The type of the result object for the full expression contains the information of a parse tree over that same expression input. The expression template may be traversed (as if one were traversing a parse tree) and some calculation performed at each node.
 
 Expression templates are extremely difficult to write, error messages are opaque (mostly due to the hierarchical nature of the involved types) and) and build times are long. Most critically, expression-template EDSLs don't allow very complex compile-time transformations on the parse tree content. Once the expression template is built, the user remains limited by C++'s lack of compile-time imperative programming support. The user cannot lower the expression template to a rational IR, or build tree data structures, or run the content through optimizers or analyzers.
 
@@ -12,7 +12,7 @@ Expression templates are extremely difficult to write, error messages are opaque
 
 Circle's integrated interpreter and code reflection mechanisms establish a larger design space for libraries. _What is a library with Circle?_ **Any code that provides a service**.
 
-As demonstrated with the [Tensor Compiler example](link), a Circle program can dynamically link to a shared object library _at compile time_, use that library to solve a difficult problem (tensor contraction scheduling), then lower the physical representation of that solution (the intermediate representation) to code using Circle's macro system.
+As demonstrated with the [Tensor Compiler example](https://github.com/seanbaxter/circle/blob/master/gems/taco.md), a Circle program can dynamically link to a shared object library _at compile time_, use that library to solve a difficult problem (tensor contraction scheduling), then lower the physical representation of that solution (the intermediate representation) to code using Circle's macro system.
 
 Apex is a collection of services to help programmers develop this new form of library. Currently it includes a tokenizer and parser for a C++ subset (called the Apex grammar), as well as a reverse-mode automatic differentation package that serves as both an example for building new libraries and an ingredient for additional numerical computing development.
 
@@ -28,6 +28,8 @@ The client communicates with the library by way of compile-time strings. The con
 1. A codegen header supplies the interface between the client, the Apex tokenizer and parser, and the library intelligence. This header provides Circle macros to lower the EDSL operation from IR to expression code. 
 
 Although this seems like an involved four-step pipeline, the first two components are reusable and provided by libraries. Even if you choose a different tokenizer or parser, you can use them from libraries. The intelligence layer establishes a nice separation of concerns, as you can develop it independently of the code generator. Finally, the codegen layer is very small, as all difficult work was pushed down and handled by shared object libraries.
+
+A strength of this approach is that it requires very little Circle code, only a thin layer of macros for code generation. All the intelligence can be written with Standard C++ for portability and to ease migration into this new language.
 
 ## Autodiff for Circle
 
@@ -134,7 +136,7 @@ template<typename... args_t>
 }
 ```
 
-`autodiff_eval` is a [metafunction](link-to-readme.md). This establishes a new scope separate from the expression context of the call site, allowing us to spread our legs a bit and declare all of the meta and real objects we care to construct. Here we allocate an array of values to hold the state of the _tape_, meaning the values of each independent variable and each subexpression encountered in the formula. These are computed bottom-up just once, and memoized into `tape_values`. 
+`autodiff_eval` is a [metafunction](https://github.com/seanbaxter/circle#metafunctions). This establishes a new scope separate from the expression context of the call site, allowing us to spread our legs a bit and declare all of the meta and real objects we care to construct. Here we allocate an array of values to hold the state of the _tape_, meaning the values of each independent variable and each subexpression encountered in the formula. These are computed bottom-up just once, and memoized into `tape_values`. 
 
 Although the values in the tape will be used again during the top-down gradient pass, their storage may be a performance limiter in problems with a very large number of temporary nodes. Because the library defines its own IR and scheduling intelligence, it's feasible to extend the IR and emit instructions to rematerialize temporary values to alleviate storage pressure. 
 

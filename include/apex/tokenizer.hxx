@@ -1,6 +1,13 @@
+#pragma once
 #include <apex/tokens.hxx>
 
 BEGIN_APEX_NAMESPACE
+
+namespace parse {
+
+struct range_t;
+
+}
 
 namespace tok {
 
@@ -118,8 +125,13 @@ struct tokenizer_t {
   // Byte offset for each line start.
   std::vector<int> line_offsets;
 
-  // Original text we parsed.
-  std::vector<char> text;
+  // Original text we tokenized.
+  std::string text;
+
+  // The text divided into tokens.
+  std::vector<token_t> tokens;
+
+  parse::range_t token_range() const;
 
   int reg_string(range_t range);
   int find_string(range_t range) const;
@@ -127,11 +139,13 @@ struct tokenizer_t {
   // Return 0-indexed line and column offsets for the token at
   // the specified byte offset. This performs UCS decoding to support
   // multibyte characters.
+  int token_offset(source_loc_t loc) const;
   int token_line(int offset) const;
   int token_col(int offset, int line) const;
   std::pair<int, int> token_linecol(int offset) const;
+  std::pair<int, int> token_linecol(source_loc_t loc) const;
  
-  std::vector<token_t> tokenize(range_t range);
+  void tokenize();
 };
 
 } // namespace tok

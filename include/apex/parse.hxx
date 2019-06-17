@@ -125,9 +125,12 @@ struct node_t {
     kind_subscript,
     kind_member,
     kind_braced,
-  } kind;
+  };
 
-  node_t(kind_t kind) : kind(kind) { }
+  kind_t kind;
+  source_loc_t loc;
+
+  node_t(kind_t kind, source_loc_t loc) : kind(kind), loc(loc) { }
   virtual ~node_t() { }
 
   template<typename derived_t>
@@ -149,7 +152,6 @@ typedef std::vector<node_ptr_t> node_list_t;
 
 struct parse_t {
   tok::tokenizer_t tokenizer;
-  std::vector<token_t> tokens;
   node_ptr_t root;
 };
 
@@ -158,14 +160,14 @@ parse_t parse_expression(const char* str);
 ////////////////////////////////////////////////////////////////////////////////
 
 struct node_ident_t : node_t {
-  node_ident_t() : node_t(kind_ident) { }
+  node_ident_t(source_loc_t loc) : node_t(kind_ident, loc) { }
   static bool classof(const node_t* p) { return kind_ident == p->kind; }
 
   std::string s;
 };
 
 struct node_unary_t : node_t {
-  node_unary_t() : node_t(kind_unary) { }
+  node_unary_t(source_loc_t loc) : node_t(kind_unary, loc) { }
   static bool classof(const node_t* p) { return kind_unary == p->kind; }
 
   expr_op_t op;
@@ -173,7 +175,7 @@ struct node_unary_t : node_t {
 };
 
 struct node_binary_t : node_t {
-  node_binary_t() : node_t(kind_binary) { }
+  node_binary_t(source_loc_t loc) : node_t(kind_binary, loc) { }
   static bool classof(const node_t* p) { return kind_binary == p->kind; }
 
   expr_op_t op;
@@ -181,7 +183,7 @@ struct node_binary_t : node_t {
 };
 
 struct node_assign_t : node_t {
-  node_assign_t() : node_t(kind_assign) { }
+  node_assign_t(source_loc_t loc) : node_t(kind_assign, loc) { }
   static bool classof(const node_t* p) { return kind_assign == p->kind; }
 
   expr_op_t op;
@@ -189,14 +191,14 @@ struct node_assign_t : node_t {
 };
 
 struct node_ternary_t : node_t {
-  node_ternary_t() : node_t(kind_ternary) { }
+  node_ternary_t(source_loc_t loc) : node_t(kind_ternary, loc) { }
   static bool classof(const node_t* p) { return kind_ternary == p->kind; }
 
   node_ptr_t a, b, c;
 };
 
 struct node_char_t : node_t {
-  node_char_t(char32_t c) : node_t(kind_char), c(c) { }
+  node_char_t(char32_t c, source_loc_t loc) : node_t(kind_char, loc), c(c) { }
   static bool classof(const node_t* p) { return kind_char == p->kind; }
 
   // UCS code for character. Caller should use UTF to_utf8 to convert back
@@ -205,35 +207,37 @@ struct node_char_t : node_t {
 };
 
 struct node_string_t : node_t {
-  node_string_t(std::string s) : node_t(kind_string), s(std::move(s)) { }
+  node_string_t(std::string s, source_loc_t loc) : 
+    node_t(kind_string, loc), s(std::move(s)) { }
   static bool classof(const node_t* p) { return kind_string == p->kind; }
 
   std::string s;
 };
 
 struct node_int_t : node_t {
-  node_int_t(uint64_t ui) : node_t(kind_int), ui(ui) { }
+  node_int_t(uint64_t ui, source_loc_t loc) : node_t(kind_int, loc), ui(ui) { }
   static bool classof(const node_t* p) { return kind_int == p->kind; }
 
   uint64_t ui;
 };
 
 struct node_bool_t : node_t {
-  node_bool_t(bool b) : node_t(kind_bool), b(b) { }
+  node_bool_t(bool b, source_loc_t loc) : node_t(kind_bool, loc), b(b) { }
   static bool classof(const node_t* p) { return kind_bool == p->kind; }
 
   bool b;
 };
 
 struct node_float_t : node_t {
-  node_float_t(long double ld) : node_t(kind_float), ld(ld) { }
+  node_float_t(long double ld, source_loc_t loc) : 
+    node_t(kind_float, loc), ld(ld) { }
   static bool classof(const node_t* p) { return kind_float == p->kind; }
 
   long double ld;
 };
 
 struct node_call_t : node_t {
-  node_call_t() : node_t(kind_call) { }
+  node_call_t(source_loc_t loc) : node_t(kind_call, loc) { }
   static bool classof(const node_t* p) { return kind_call == p->kind; }
 
   node_ptr_t f;
@@ -241,7 +245,7 @@ struct node_call_t : node_t {
 };
 
 struct node_subscript_t : node_t {
-  node_subscript_t() : node_t(kind_subscript) { }
+  node_subscript_t(source_loc_t loc) : node_t(kind_subscript, loc) { }
   static bool classof(const node_t* p) { return kind_subscript == p->kind; }
 
   node_ptr_t lhs;
@@ -249,7 +253,7 @@ struct node_subscript_t : node_t {
 };
 
 struct node_member_t : node_t {
-  node_member_t() : node_t(kind_member) { }
+  node_member_t(source_loc_t loc) : node_t(kind_member, loc) { }
   static bool classof(const node_t* p) { return kind_member == p->kind; }
 
   tk_kind_t tk;           // dot or arrow
@@ -258,7 +262,7 @@ struct node_member_t : node_t {
 };
 
 struct node_braced_t : node_t {
-  node_braced_t() : node_t(kind_braced) { }
+  node_braced_t(source_loc_t loc) : node_t(kind_braced, loc) { }
   static bool classof(const node_t* p) { return kind_braced == p->kind; }
 
   std::vector<node_ptr_t> args;

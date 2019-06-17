@@ -1,9 +1,14 @@
 #include <apex/tokenizer.hxx>
+#include <apex/parse.hxx>
 #include <algorithm>
 
 BEGIN_APEX_NAMESPACE
 
 namespace tok {
+
+apex::parse::range_t tokenizer_t::token_range() const {
+  return { tokens.data(), tokens.data() + tokens.size() };
+} 
 
 int tokenizer_t::reg_string(range_t range) {
   int id = find_string(range);
@@ -22,10 +27,19 @@ int tokenizer_t::find_string(range_t range) const {
   return -1;
 }
 
-std::vector<apex::token_t> tokenizer_t::tokenize(range_t range) {
-  lexer_t lexer(*this);
+void tokenizer_t::tokenize() {
+  // Mark the byte of each line offset.
+  size_t len = text.size();
+  line_offsets.push_back(0);
+  for(size_t i = 0; i < len; ++i) {
+    if('\n' == text[i])
+      line_offsets.push_back(i);
+  }
+  line_offsets.push_back(len);
 
-  std::vector<apex::token_t> tokens;
+  lexer_t lexer(*this);
+  range_t range { text.data(), text.data() + text.size() };
+
   while(true) {
     // Skip past whitespace and comments.
     lexer.advance_skip(range);
@@ -36,8 +50,10 @@ std::vector<apex::token_t> tokenizer_t::tokenize(range_t range) {
     } else
       break;
   }
+}
 
-  return tokens;
+int tokenizer_t::token_offset(source_loc_t loc) const {
+  return tokens[loc.index].begin - text.c_str();
 }
 
 int tokenizer_t::token_line(int offset) const {
@@ -70,6 +86,9 @@ std::pair<int, int> tokenizer_t::token_linecol(int offset) const {
   return { line, col };
 }
 
+std::pair<int, int> tokenizer_t::token_linecol(source_loc_t loc) const {
+  return token_linecol(token_offset(loc));
+}
 
 } // namespace tok
 
