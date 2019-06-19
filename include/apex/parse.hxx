@@ -54,8 +54,8 @@ struct node_t {
   enum kind_t {
     kind_ident,
     kind_unary,
-    kind_binary,      // left-to-right evaluation
-    kind_assign,      // right-to-left evaluation
+    kind_binary,
+    kind_assign,
     kind_ternary,
     kind_call,
     kind_char,

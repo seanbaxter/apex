@@ -1,4 +1,4 @@
-# The APEX DSL Library
+# The Apex DSL Library
 
 Write embedded domain-specific languages for [Circle](https://www.circle-lang.org).
 

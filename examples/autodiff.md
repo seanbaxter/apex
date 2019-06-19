@@ -82,83 +82,169 @@ The Apex autodiff example adopts the DAG view of the problem. The implementation
 
 However, the separation of autodiff intelligence and code generation permits selection of a back-propagation treatment most suitable for the particular primary inputs and expression graph. Calls into the autodiff library with different expressions may generate implementations utilizing different strategies, without the vexations of template metaprogramming.
 
-## The autodiff code generator
+## Writing an embedded DSL for Circle programs
 
-[**autodiff_codegen.hxx**](../include/apex/autodiff_codegen.hxx)
+How do we implement the autodiff DSL? We basically write our own small compiler frontend--it takes text input, performs syntax and semantic analysis, and emits IR, just like a general-purpose compiler. 
+
+This would be too much work if written from scratch for each DSL library. We'll use the language components available in Apex to tokenize and parse the input text into a parse tree for the _Apex grammar_ (a C++-inspired expression grammar), and consume the parse tree as configuration for the library. 
+
+### The tokenizer
+
+Apex includes a tokenizer that breaks an input text into operators (all the ones recognized by C++) and identifiers.
+
+[**tokens.hxx**](../include/apex/tokens.hxx)
 ```cpp
-@macro auto autodiff_grad(std::string __fmt, 
-  std::vector<std::string> __var_names, bool print_debug = false) {
+struct token_t {
+  tk_kind_t kind : 8;
+  int store : 24;
+  const char* begin, *end;
 
-  // Construct the autodiff builder. make_autodiff is in libapex.so.
-  @meta apex::autodiff_t __autodiff = apex::make_autodiff(__fmt, __var_names);
-
-  // Print the tape if requested. print_autodiff is in libapex.so.
-  @meta if(print_debug)
-    @meta printf(apex::print_autodiff(__autodiff).c_str());
-
-  // Generate and call into a metafunction. The meta argument is the
-  // autodiff builder. The real arguments are the values of each of the
-  // independent variables, evaluated in the scope of solve_autodiff's 
-  // caller and supplied to autodiff_eval using parameter pack expansion. 
-  return autodiff_eval(
-    __autodiff, 
-    @expression(__var_names[__integer_pack(__var_names.size())])...
-  );
-}
+  operator tk_kind_t() const { return kind; }
+};
+typedef const token_t* token_it;
 ```
 
-`autodiff_grad` is implemented as an expression macro. This allows us to harvest the values of the independent variables from their names, because the expression macro is expanded in the scope of the call site. It can create any meta objects (which we double-underscore to avoid shadowing independent variable names during subsequent name lookup), but may only emit a single real _return-statement_. The argument of the return is inlined into the calling expression.
+The token structure holds an enumeration defining the kind of token (eg '+' token, integer token or identifier token) and an index into a store to retrieve a resource, like a string, integer or floating-point value.
 
-The expression macro constructs the autodiff tape (the IR) with a compile-time call to `make_autodiff`. This function is implemented in `libapex.so`, so `-M libapex.so` must be specified as a `circle` argument to load this shared object library as a dependency. The expression macro returns a call to the metafunction `autodiff_eval`, passing the `autodiff_t` meta object and the value of each independent variable as arguments.
-
+[**tokenizer.hxx**](../include/apex/tokenizer.hxx)
 ```cpp
-template<typename... args_t>
-@meta std::array<double, sizeof...(args_t)> autodiff_eval(
-  @meta const apex::autodiff_t& autodiff, args_t... args) {
+struct tokenizer_t {
+  std::vector<std::string> strings;
+  std::vector<uint64_t> ints;
+  std::vector<double> floats;
 
-  @meta size_t num_vars = autodiff.var_names.size();
-  @meta size_t num_items = autodiff.tape.size();
+  // Byte offset for each line start.
+  std::vector<int> line_offsets;
 
-  // Compute the values for the whole tape. This is the forward-mode pass. 
-  // It propagates values from the terminals (independent variables) through
-  // the subexpressions and up to the root of the function.
+  // Original text we tokenized.
+  std::string text;
 
-  // Copy the values of the independent variables into the tape.
-  double tape_values[num_items] { args... };
+  // The text divided into tokens.
+  std::vector<token_t> tokens;
 
-  // Evaluate the subexpressions.
-  @meta for(size_t i = num_vars; i < num_items; ++i)
-    tape_values[i] = autodiff_expr(autodiff.tape[i].val.get());
+  parse::range_t token_range() const;
 
-  // Evaluate the gradients. This is a top-down reverse-mode traversal of 
-  // the autodiff DAG. The partial derivatives are parsed along edges, starting
-  // from the root and towards each terminal. When a terminal is visited, the
-  // corresponding component of the gradient is incremented by the product of
-  // all the partial derivatives from the root of the DAG down to that 
-  // terminal.
+  int reg_string(range_t range);
+  int find_string(range_t range) const;
 
-  double coef[num_items];
-  std::array<double, num_vars> grad { };
+  // Return 0-indexed line and column offsets for the token at
+  // the specified byte offset. This performs UCS decoding to support
+  // multibyte characters.
+  int token_offset(source_loc_t loc) const;
+  int token_line(int offset) const;
+  int token_col(int offset, int line) const;
+  std::pair<int, int> token_linecol(int offset) const;
+  std::pair<int, int> token_linecol(source_loc_t loc) const;
+ 
+  void tokenize();
+};
+```
 
-  // Visit each child of the root node.
-  @meta int root = num_items - 1;
-  @meta for(const auto& g : autodiff.tape[root].grads) {
-    // Evaluate the coefficient into the stack.
-    coef[root] = autodiff_expr(g.coef.get());
+The `tokenizer_t` class holds the input text, the array of tokens, the resources, and an array of line offsets to ease mapping between tokens and line/column positions within the input text. The tokenizer expects UTF-8 input, so characters may consume between one and four bytes; the `token_linecol` functions map token indices and byte offsets within the text to the correct line/column positions, accounting for these multi-byte characters.
 
-    // Recurse on the child.
-    @macro autodiff_tape(g.index, root);
+To use the tokenizer, set the `text` data member and call the `tokenize` member function.
+
+### The parser
+
+The parser consumes tokens from left-to-right and constructs a parse tree from bottom-to-top. Apex includes a hand-written recursive descent (RD) parser, which is the most practical and flexible approach to parsing.
+
+[**parse.hxx**](../include/apex/parse.hxx)
+```cpp
+struct node_t {
+  enum kind_t {
+    kind_ident,
+    kind_unary,
+    kind_binary,
+    kind_assign,
+    kind_ternary,
+    kind_call,
+    kind_char,
+    kind_string,
+    kind_number,
+    kind_bool,
+    kind_subscript,
+    kind_member,
+    kind_braced,
+  };
+
+  kind_t kind;
+  source_loc_t loc;
+
+  node_t(kind_t kind, source_loc_t loc) : kind(kind), loc(loc) { }
+  virtual ~node_t() { }
+
+  template<typename derived_t>
+  derived_t* as() {
+    return derived_t::classof(this) ? 
+      static_cast<derived_t*>(this) : 
+      nullptr;
   }
 
-  return std::move(grad);
-}
+  template<typename derived_t>
+  const derived_t* as() const {
+    return derived_t::classof(this) ? 
+      static_cast<const derived_t*>(this) : 
+      nullptr;
+  }
+};
+typedef std::unique_ptr<node_t> node_ptr_t;
+typedef std::vector<node_ptr_t> node_list_t;
 ```
 
-`autodiff_eval` is a [metafunction](https://github.com/seanbaxter/circle#metafunctions). This establishes a new scope separate from the expression context of the call site, allowing us to spread our legs a bit and declare all of the meta and real objects we care to construct. Here we allocate an array of values to hold the state of the _tape_, meaning the values of each independent variable and each subexpression encountered in the formula. These are computed bottom-up just once, and memoized into `tape_values`. 
+Each parse tree node derives `apex::parse::node_t`. `source_loc_t` is the integer index of the token from which the parse node was constructed, and we include one in each parse node. The tokenizer object can map `source_loc_t` objects back to line/column numbers for error reporting.
 
-Although the values in the tape will be used again during the top-down gradient pass, their storage may be a performance limiter in problems with a very large number of temporary nodes. Because the library defines its own IR and scheduling intelligence, it's feasible to extend the IR and emit instructions to rematerialize temporary values to alleviate storage pressure. 
+The full implementation of the parser is in [grammar.cxx](../src/parse/grammar.cxx). We'll run the parser at compile time from a meta context in the Circle program. But unlike a template, which is C++ generic programming offering, _we don't need to see the source of the parser_ from the source code of the client. The parser is compiled into `libapex.so`, and the Circle interpreter will make a foreign function call to run the parser and retrieve the parse tree. We don't even need access to `libapex.so` at runtime--the IR from the DSL library is lowered to Circle code during compile time, and the resulting binary retains no evidence of `libapex.so`'s role in its generation.
 
-## The autodiff IR
+[**parse.hxx**](../include/apex/parse.hxx)
+```cpp
+struct parse_t {
+  tok::tokenizer_t tokenizer;
+  node_ptr_t root;
+};
+
+parse_t parse_expression(const char* str);
+```
+
+Calling `apex::parse::parse_expression` tokenizes and parses an input text and returns both the tokenizer (which has line-mapping content) and the root node of the parse tree. `node_ptr_t` is an `std::unique_ptr`; when the user destroys the root object from meta code, the entire tree is recursively destroyed from the smart pointers' destructors.
+
+### The autodiff IR
+
+The autodiff library traverses the parse tree and builds a data structure called a _tape_ or _Wengert list_, which includes instructions for evaluating the value and partial derivatives for each subexpression.
+
+[**autodiff.hxx**](../include/apex/autodiff.hxx)
+```cpp
+struct autodiff_t {
+  struct item_t {
+    // The expression to execute to compute this dependent variable's value.
+    // This is evaluated during the upsweep when creating the tape from the 
+    // independent variables and moving through all subexpressions.
+    ad_ptr_t val;
+
+    // When updating the gradient of the parent, this tape item loops over each
+    // of its dependent variables and performs a chain rule increment.
+    // It calls grad(index, coef) on each index. This recurses, down to the
+    // independent vars, multiplying in the coef at each recurse. 
+
+    // When we hit an independent var, the grads array is empty (although it
+    // may be empty otherwise) and we simply perform += coef into the slot
+    // corresponding to the independent variable in the gradient array.
+    struct grad_t {
+      int index;
+      ad_ptr_t coef;
+    };
+    std::vector<grad_t> grads;
+  };
+
+  // The first var_names.size() items encode independent variables.
+  std::vector<std::string> var_names;
+  std::vector<item_t> tape;
+};
+
+autodiff_t make_autodiff(const std::string& formula, 
+  const std::vector<std::string>& var_names);
+```
+
+The result object of `make_autodiff` is an object of type `autodiff_t`. This holds the _tape_, and each tape item holds expressions to evaluating the tape's subexpression and that subexpression's gradient. The index in each gradient component refers to a position within the tape corresponding to the variable (dependent or independent) that the partial derivative is computed with respect to. When traversing the tape DAG, we concatenate partial derivatives; when we hit a terminal node (an independent variable), we increment the output gradient by the total derivative--this is the chain rule in action.
 
 The autodiff IR needs to be comprehensive enough to encode any operations found in the expression to differentiate. We chose the design for easy lowering using intrinsics like `@op` and `@expression` to generate code from strings.
 
@@ -234,6 +320,129 @@ struct ad_func_t : ad_t {
 ```
 
 The autodiff code in `libapex.so` generates `ad_t` trees into the tape data structure. Each tree node is allocated on the heap and stored in an `std::unique_ptr`. Because the shared object is loaded into the address space of the compiler, the result object of the foreign-function library call is fully accessible to meta code in the translation unit by way of the Circle interpreter. 
+
+As with the tokenizer and parser, the implementation of the autodiff library is totally abstracted from the library's caller. 
+
+The tape-building class `ad_builder_t` in [autodiff.cxx](../src/autodiff/autodiff.cxx) has member functions for each operation and elementary function supported by the DSL. For example, to support multiplication we implement the product rule of calculus:
+
+```cpp
+int ad_builder_t::mul(int a, int b) {
+  // The sq operator is memoized, so prefer that.
+  if(a == b)
+    return sq(a);
+
+  // grad (a * b) = a grad b + b grad a.
+  item_t item { };
+  item.val = mul(val(a), val(b));
+  item.grads.push_back({
+    b,      // a * grad b
+    val(a)
+  });
+  item.grads.push_back({
+    a,      // b * grad a
+    val(b)
+  });
+  return push_item(std::move(item));
+}
+```
+
+The operands are indices to lower nodes in the tape. We use function overloads like `mul` and `val` to create `ad_t` nodes, which are assembled recursively into expression trees.
+
+```cpp
+int ad_builder_t::sin(int a) {
+  item_t item { };
+  item.val = func("std::sin", val(a));
+  item.grads.push_back({
+    a,
+    func("std::cos", val(a))
+  });
+  return push_item(std::move(item));
+}
+```
+
+The sine function is supported with a similar member function. We generate `ad_func_t` nodes which identify the functions to call by string name. When the IR is lowered to code in [autodiff_codegen.hxx](../include/apex/autodiff_codegen.hxx), we'll use `@expression` to perform name lookup and convert these qualified names to function lvalues.
+
+Note that we can deliver a rich calculus package without having to define a type system to interact with the rest of the C++ application. We don't have to require that `sin` and `cos` implement any particular concept or interface to participate in differentiation, because these are first-class functions supported by the DSL.
+
+To allow user-extension to the autodiff library, such as user-defined functions, any convention may be used to communicate between the library and the client. A participating function and its derivative could adopt a particular naming convention (e.g., the function ends with `_f` and the derivative ends with `_grad`); the function and derivative could be member functions of a class that is named in the input string (e.g., naming "sinc" in the formula string performs name lookup for class `sinc_t` and calls member functions `f` and `grad`)
+
+The strength of this design is that you aren't relying on C++'s overload resolution and type systems to coordinate between the library's implementation and its users; the library can introduce its own conventions for interoperability.
+
+## The autodiff code generator
+
+[**autodiff_codegen.hxx**](../include/apex/autodiff_codegen.hxx)
+```cpp
+@macro auto autodiff_grad(std::string __fmt, 
+  std::vector<std::string> __var_names, bool print_debug = false) {
+
+  // Construct the autodiff builder. make_autodiff is in libapex.so.
+  @meta apex::autodiff_t __autodiff = apex::make_autodiff(__fmt, __var_names);
+
+  // Print the tape if requested. print_autodiff is in libapex.so.
+  @meta if(print_debug)
+    @meta printf(apex::print_autodiff(__autodiff).c_str());
+
+  // Generate and call into a metafunction. The meta argument is the
+  // autodiff builder. The real arguments are the values of each of the
+  // independent variables, evaluated in the scope of solve_autodiff's 
+  // caller and supplied to autodiff_eval using parameter pack expansion. 
+  return autodiff_eval(
+    __autodiff, 
+    @expression(__var_names[__integer_pack(__var_names.size())])...
+  );
+}
+```
+
+`autodiff_grad` is implemented as an expression macro. This allows us to harvest the values of the independent variables from their names, because the expression macro is expanded in the scope of the call site. It can create any meta objects (which we double-underscore to avoid shadowing independent variable names during subsequent name lookup), but may only emit a single real _return-statement_. The argument of the return is inlined into the calling expression.
+
+The expression macro constructs the autodiff tape (the IR) with a compile-time call to `make_autodiff`. This function is implemented in `libapex.so`, so `-M libapex.so` must be specified as a `circle` argument to load this shared object library as a dependency. The expression macro returns a call to the metafunction `autodiff_eval`, passing the `autodiff_t` meta object and the value of each independent variable as arguments.
+
+```cpp
+template<typename... args_t>
+@meta std::array<double, sizeof...(args_t)> autodiff_eval(
+  @meta const apex::autodiff_t& autodiff, args_t... args) {
+
+  @meta size_t num_vars = autodiff.var_names.size();
+  @meta size_t num_items = autodiff.tape.size();
+
+  // Compute the values for the whole tape. This is the forward-mode pass. 
+  // It propagates values from the terminals (independent variables) through
+  // the subexpressions and up to the root of the function.
+
+  // Copy the values of the independent variables into the tape.
+  double tape_values[num_items] { args... };
+
+  // Evaluate the subexpressions.
+  @meta for(size_t i = num_vars; i < num_items; ++i)
+    tape_values[i] = autodiff_expr(autodiff.tape[i].val.get());
+
+  // Evaluate the gradients. This is a top-down reverse-mode traversal of 
+  // the autodiff DAG. The partial derivatives are parsed along edges, starting
+  // from the root and towards each terminal. When a terminal is visited, the
+  // corresponding component of the gradient is incremented by the product of
+  // all the partial derivatives from the root of the DAG down to that 
+  // terminal.
+
+  double coef[num_items];
+  std::array<double, num_vars> grad { };
+
+  // Visit each child of the root node.
+  @meta int root = num_items - 1;
+  @meta for(const auto& g : autodiff.tape[root].grads) {
+    // Evaluate the coefficient into the stack.
+    coef[root] = autodiff_expr(g.coef.get());
+
+    // Recurse on the child.
+    @macro autodiff_tape(g.index, root);
+  }
+
+  return std::move(grad);
+}
+```
+
+`autodiff_eval` is a [metafunction](https://github.com/seanbaxter/circle#metafunctions). This establishes a new scope separate from the expression context of the call site, allowing us to spread our legs a bit and declare all of the meta and real objects we care to construct. Here we allocate an array of values to hold the state of the _tape_, meaning the values of each independent variable and each subexpression encountered in the formula. These are computed bottom-up just once, and memoized into `tape_values`. 
+
+Although the values in the tape will be used again during the top-down gradient pass, their storage may be a performance limiter in problems with a very large number of temporary nodes. Because the library defines its own IR and scheduling intelligence, it's feasible to extend the IR and emit instructions to rematerialize temporary values to alleviate storage pressure. 
 
 [**autodiff_codegen.hxx**](../include/apex/autodiff_codegen.hxx)
 ```cpp
