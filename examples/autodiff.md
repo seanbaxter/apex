@@ -74,7 +74,7 @@ After just two days of programming, this package supports these expressions and 
 * Unary -.
 * sq, sqrt, exp, log, sin, cos, tan, sinh, cosh, tanh, pow and norm functions.
 
-The call to `autodiff_grad` has distinct compile-time and runtime phases. At compile time, the formula is tokenized and parsed; the parse tree is lowered by `ad_builder_t` to an IR called a "tape," and that tape is lowered by `autodiff_codegen.hxx` to code using Circle macros. At runtime, the independent variables are evaluated and the tape-generated code is executed, yielding the gradient. All scheduling is performed at compile time, and there is no runtime dependency on any part of the `libapex.so` library.
+The call to `autodiff_grad` has distinct compile-time and runtime phases. At compile time, the formula is tokenized and parsed; the parse tree is lowered by `make_autodiff` to an IR called a "tape," and that tape is lowered by `autodiff_codegen.hxx` to code using Circle macros. At runtime, the independent variables are evaluated and the tape-generated code is executed, yielding the gradient. All scheduling is performed at compile time, and there is no runtime dependency on any part of the `libapex.so` library.
 
 Reverse-mode differentation is essentially a sparse matrix problem. Each dependent variable/subexpression is a row in the sparse matrix (an item in the tape) with a non-zero column for each partial derivative we'll compute to complete the chain rule. When considered as a DAG traversal, the chain rule calculation involves propagating partials from the root down each edge, and incrementing a component of the gradient vector by the concatenated chain rule coefficient. When viewed as linear algebra, the entire gradient pass is a sparse back-propagation operation. 
 
@@ -87,18 +87,21 @@ However, the separation of autodiff intelligence and code generation permits sel
 [**autodiff_codegen.hxx**](../include/apex/autodiff_codegen.hxx)
 ```cpp
 @macro auto autodiff_grad(std::string __fmt, 
-  std::vector<std::string> __var_names) {
+  std::vector<std::string> __var_names, bool print_debug = false) {
 
-  // Construct the autodiff builder.
-  @meta apex::ad_builder_t __ad_builder;
-  @meta __ad_builder.process(__fmt, __var_names);
+  // Construct the autodiff builder. make_autodiff is in libapex.so.
+  @meta apex::autodiff_t __autodiff = apex::make_autodiff(__fmt, __var_names);
+
+  // Print the tape if requested. print_autodiff is in libapex.so.
+  @meta if(print_debug)
+    @meta printf(apex::print_autodiff(__autodiff).c_str());
 
   // Generate and call into a metafunction. The meta argument is the
   // autodiff builder. The real arguments are the values of each of the
   // independent variables, evaluated in the scope of solve_autodiff's 
   // caller and supplied to autodiff_eval using parameter pack expansion. 
   return autodiff_eval(
-    __ad_builder, 
+    __autodiff, 
     @expression(__var_names[__integer_pack(__var_names.size())])...
   );
 }
@@ -106,15 +109,15 @@ However, the separation of autodiff intelligence and code generation permits sel
 
 `autodiff_grad` is implemented as an expression macro. This allows us to harvest the values of the independent variables from their names, because the expression macro is expanded in the scope of the call site. It can create any meta objects (which we double-underscore to avoid shadowing independent variable names during subsequent name lookup), but may only emit a single real _return-statement_. The argument of the return is inlined into the calling expression.
 
-The expression macro constructs the autodiff tape (the IR) with a compile-time call to `ad_builder_t::process`. This function is implemented in `libapex.so`, so `-M libapex.so` must be specified as a `circle` argument to load this shared object library as a dependency. The expression macro returns a call to the metafunction `autodiff_eval`, passing the AD builder meta object and the value of each independent variable as arguments.
+The expression macro constructs the autodiff tape (the IR) with a compile-time call to `make_autodiff`. This function is implemented in `libapex.so`, so `-M libapex.so` must be specified as a `circle` argument to load this shared object library as a dependency. The expression macro returns a call to the metafunction `autodiff_eval`, passing the `autodiff_t` meta object and the value of each independent variable as arguments.
 
 ```cpp
 template<typename... args_t>
 @meta std::array<double, sizeof...(args_t)> autodiff_eval(
-  @meta const ad_builder_t& ad_builder, args_t... args) {
+  @meta const apex::autodiff_t& autodiff, args_t... args) {
 
-  @meta size_t num_vars = ad_builder.var_names.size();
-  @meta size_t num_items = ad_builder.tape.size();
+  @meta size_t num_vars = autodiff.var_names.size();
+  @meta size_t num_items = autodiff.tape.size();
 
   // Compute the values for the whole tape. This is the forward-mode pass. 
   // It propagates values from the terminals (independent variables) through
@@ -125,7 +128,7 @@ template<typename... args_t>
 
   // Evaluate the subexpressions.
   @meta for(size_t i = num_vars; i < num_items; ++i)
-    tape_values[i] = autodiff_expr(ad_builder.tape[i].val.get());
+    tape_values[i] = autodiff_expr(autodiff.tape[i].val.get());
 
   // Evaluate the gradients. This is a top-down reverse-mode traversal of 
   // the autodiff DAG. The partial derivatives are parsed along edges, starting
@@ -139,7 +142,7 @@ template<typename... args_t>
 
   // Visit each child of the root node.
   @meta int root = num_items - 1;
-  @meta for(const auto& g : ad_builder.tape[root].grads) {
+  @meta for(const auto& g : autodiff.tape[root].grads) {
     // Evaluate the coefficient into the stack.
     coef[root] = autodiff_expr(g.coef.get());
 

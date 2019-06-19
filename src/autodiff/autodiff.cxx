@@ -119,6 +119,8 @@ struct ad_builder_t : autodiff_t {
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// TODO: Register each tape insertion with the common subexpression elimination
+// (CSE) map, so that find_cse will work.
 
 int ad_builder_t::literal_node(double x) {
   item_t item { };
