@@ -1,67 +1,8 @@
 #pragma once
 #include <apex/tokenizer.hxx>
+#include <apex/value.hxx>
 
 BEGIN_APEX_NAMESPACE
-
-enum expr_op_t : uint8_t {
-  expr_op_none = 0,
-
-  // postfix. 
-  expr_op_inc_post,
-  expr_op_dec_post, 
-
-  // prefix.
-  expr_op_inc_pre,          // ++x
-  expr_op_dec_pre,          // --x
-  expr_op_complement,       // ~x
-  expr_op_negate,           // !x
-  expr_op_plus,             // +x
-  expr_op_minus,            // -x
-  expr_op_addressof,        // &x
-  expr_op_indirection,      // *x
-
-  // Right-associative binary operators.
-  expr_op_ptrmem_dot,
-  expr_op_ptrmem_arrow,
-
-  // Left-associative operations.
-  expr_op_mul,
-  expr_op_div,
-  expr_op_mod,
-  expr_op_add,
-  expr_op_sub,
-  expr_op_shl,
-  expr_op_shr,
-  expr_op_lt,
-  expr_op_gt,
-  expr_op_lte,
-  expr_op_gte,
-  expr_op_eq,
-  expr_op_ne,
-  expr_op_bit_and,
-  expr_op_bit_xor,
-  expr_op_bit_or,
-  expr_op_log_and,
-  expr_op_log_or,
-
-  // Right-associative operations.  
-  expr_op_assign,
-  expr_op_assign_mul,
-  expr_op_assign_div,
-  expr_op_assign_mod,
-  expr_op_assign_add,
-  expr_op_assign_sub,
-  expr_op_assign_shl,
-  expr_op_assign_shr,
-  expr_op_assign_and,
-  expr_op_assign_or,
-  expr_op_assign_xor,
-
-  expr_op_ternary,
-  expr_op_sequence,
-};
-
-extern const char* expr_op_names[];
 
 namespace parse {
 
@@ -119,9 +60,8 @@ struct node_t {
     kind_call,
     kind_char,
     kind_string,
-    kind_int,
+    kind_number,
     kind_bool,
-    kind_float,
     kind_subscript,
     kind_member,
     kind_braced,
@@ -214,13 +154,6 @@ struct node_string_t : node_t {
   std::string s;
 };
 
-struct node_int_t : node_t {
-  node_int_t(uint64_t ui, source_loc_t loc) : node_t(kind_int, loc), ui(ui) { }
-  static bool classof(const node_t* p) { return kind_int == p->kind; }
-
-  uint64_t ui;
-};
-
 struct node_bool_t : node_t {
   node_bool_t(bool b, source_loc_t loc) : node_t(kind_bool, loc), b(b) { }
   static bool classof(const node_t* p) { return kind_bool == p->kind; }
@@ -228,12 +161,12 @@ struct node_bool_t : node_t {
   bool b;
 };
 
-struct node_float_t : node_t {
-  node_float_t(long double ld, source_loc_t loc) : 
-    node_t(kind_float, loc), ld(ld) { }
-  static bool classof(const node_t* p) { return kind_float == p->kind; }
+struct node_number_t : node_t {
+  node_number_t(number_t number, source_loc_t loc) :
+    node_t(kind_number, loc), x(number) { }
+  static bool classof(const node_t* p) { return kind_number == p->kind; }
 
-  long double ld;
+  number_t x;
 };
 
 struct node_call_t : node_t {

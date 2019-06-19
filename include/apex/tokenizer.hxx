@@ -100,7 +100,7 @@ struct lexer_t {
   result_t<int> exponent_part(range_t range);
 
   result_t<uint64_t> integer_literal(range_t range);
-  result_t<long double> floating_point_literal(range_t range);
+  result_t<double> floating_point_literal(range_t range);
   result_t<token_t> number(range_t range);
 
   result_t<token_t> literal(range_t range);
@@ -120,7 +120,7 @@ struct lexer_t {
 struct tokenizer_t {
   std::vector<std::string> strings;
   std::vector<uint64_t> ints;
-  std::vector<long double> floats;
+  std::vector<double> floats;
 
   // Byte offset for each line start.
   std::vector<int> line_offsets;

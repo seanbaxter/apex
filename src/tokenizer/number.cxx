@@ -111,7 +111,7 @@ result_t<int> lexer_t::exponent_part(range_t range) {
   return result;
 }
 
-result_t<long double> lexer_t::floating_point_literal(range_t range) {
+result_t<double> lexer_t::floating_point_literal(range_t range) {
   const char* begin = range.begin;
   floating_parts_t parts { };
   if(auto leading = decimal_sequence(range)) {
@@ -154,10 +154,10 @@ result_t<long double> lexer_t::floating_point_literal(range_t range) {
     return { };
  
   // TODO: Assemble the floating-point literal by hand.
-  // sscanf the floating point literal into long double.
+  // sscanf the floating point literal into double.
   std::string s(begin, range.begin);
-  long double x;
-  sscanf(s.c_str(), "%Le", &x);
+  double x;
+  sscanf(s.c_str(), "%lf", &x);
 
   return make_result(begin, range.begin, x);
 }

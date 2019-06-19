@@ -9,6 +9,8 @@ set(SOURCE_FILES
   src/util/utf.cxx
   src/util/format.cxx
 
+  src/core/value.cxx
+
   src/parse/grammar.cxx
 
   src/tokenizer/tokens.cxx

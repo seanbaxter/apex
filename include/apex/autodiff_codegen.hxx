@@ -71,7 +71,7 @@ inline double sq(double x) {
 
   } else {
     // We're in a subexpression. Evaluate each of the child nodes.
-    @meta for(const auto& g : ad_builder.tape[index].grads) {
+    @meta for(const auto& g : autodiff.tape[index].grads) {
       // Evaluate the coefficient into the stack.
       coef[index] = coef[parent] * autodiff_expr(g.coef.get());
       @macro autodiff_tape(g.index, index);
@@ -81,10 +81,10 @@ inline double sq(double x) {
 
 template<typename... args_t>
 @meta std::array<double, sizeof...(args_t)> autodiff_eval(
-  @meta const ad_builder_t& ad_builder, args_t... args) {
+  @meta const apex::autodiff_t& autodiff, args_t... args) {
 
-  @meta size_t num_vars = ad_builder.var_names.size();
-  @meta size_t num_items = ad_builder.tape.size();
+  @meta size_t num_vars = autodiff.var_names.size();
+  @meta size_t num_items = autodiff.tape.size();
 
   // Compute the values for the whole tape. This is the forward-mode pass. 
   // It propagates values from the terminals (independent variables) through
@@ -95,7 +95,7 @@ template<typename... args_t>
 
   // Evaluate the subexpressions.
   @meta for(size_t i = num_vars; i < num_items; ++i)
-    tape_values[i] = autodiff_expr(ad_builder.tape[i].val.get());
+    tape_values[i] = autodiff_expr(autodiff.tape[i].val.get());
 
   // Evaluate the gradients. This is a top-down reverse-mode traversal of 
   // the autodiff DAG. The partial derivatives are parsed along edges, starting
@@ -109,7 +109,7 @@ template<typename... args_t>
 
   // Visit each child of the root node.
   @meta int root = num_items - 1;
-  @meta for(const auto& g : ad_builder.tape[root].grads) {
+  @meta for(const auto& g : autodiff.tape[root].grads) {
     // Evaluate the coefficient into the stack.
     coef[root] = autodiff_expr(g.coef.get());
 
@@ -121,18 +121,21 @@ template<typename... args_t>
 }
 
 @macro auto autodiff_grad(std::string __fmt, 
-  std::vector<std::string> __var_names) {
+  std::vector<std::string> __var_names, bool print_debug = false) {
 
-  // Construct the autodiff builder.
-  @meta apex::ad_builder_t __ad_builder;
-  @meta __ad_builder.process(__fmt, __var_names);
+  // Construct the autodiff builder. make_autodiff is in libapex.so.
+  @meta apex::autodiff_t __autodiff = apex::make_autodiff(__fmt, __var_names);
+
+  // Print the tape if requested. print_autodiff is in libapex.so.
+  @meta if(print_debug)
+    @meta printf(apex::print_autodiff(__autodiff).c_str());
 
   // Generate and call into a metafunction. The meta argument is the
   // autodiff builder. The real arguments are the values of each of the
   // independent variables, evaluated in the scope of solve_autodiff's 
   // caller and supplied to autodiff_eval using parameter pack expansion. 
   return autodiff_eval(
-    __ad_builder, 
+    __autodiff, 
     @expression(__var_names[__integer_pack(__var_names.size())])...
   );
 }

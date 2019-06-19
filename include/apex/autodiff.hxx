@@ -75,60 +75,8 @@ struct ad_func_t : ad_t {
   std::vector<ad_ptr_t> args;
 };
 
-struct ad_builder_t {
-
-  int literal_node(double x);
-
-  // Operators
-  int add(int a, int b);
-  int sub(int a, int b);
-  int mul(int a, int b);
-  int div(int a, int b);
-  int negate(int a);
-
-  // Calls to elementary functions.
-  int sq(int a);
-  int sqrt(int a);
-  int exp(int a);
-  int log(int a);
-  int sin(int a);
-  int cos(int a);
-  int tan(int a);
-  int sinh(int a);
-  int cosh(int a);
-  int tanh(int a);
-  int pow(int a, int b);
-  int norm(const int* p, int count);
-  
-  ad_ptr_t val(int index);
-  ad_ptr_t literal(double x);
-  ad_ptr_t add(ad_ptr_t a, ad_ptr_t b);
-  ad_ptr_t sub(ad_ptr_t a, ad_ptr_t b);
-  ad_ptr_t mul(ad_ptr_t a, ad_ptr_t b);
-  ad_ptr_t div(ad_ptr_t a, ad_ptr_t b);
-  ad_ptr_t rcp(ad_ptr_t a);
-  ad_ptr_t sq(ad_ptr_t a);
-  ad_ptr_t func(const char* name, ad_ptr_t a, ad_ptr_t b = nullptr);
-
-  std::string str(const parse::node_t* node);
-
-  int recurse(const parse::node_ident_t* node);
-  int recurse(const parse::node_member_t* node);
-  int recurse(const parse::node_subscript_t* node);
-  int recurse(const parse::node_unary_t* node);
-  int recurse(const parse::node_binary_t* node);
-  int recurse(const parse::node_call_t* node);
-  int recurse(const parse::node_t* node);
-
-  void process(const std::string& formula, std::vector<std::string> var_names);
-  void process(const parse::parse_t& parse, std::vector<std::string> var_names);
-
-  void throw_error(const parse::node_t* node, const char* fmt, ...);
-
+struct autodiff_t {
   struct item_t {
-    // NOTE: Expression to compute value in terms of other slots and 
-    // the independent variables.
-
     // The expression to execute to compute this dependent variable's value.
     // This is evaluated during the upsweep when creating the tape from the 
     // independent variables and moving through all subexpressions.
@@ -149,26 +97,15 @@ struct ad_builder_t {
     std::vector<grad_t> grads;
   };
 
-  int push_item(item_t item) {
-    int count = tape.size();
-    tape.push_back(std::move(item));
-    return count;
-  }
-
-  int find_var(const parse::node_t* node, std::string name);
-
-  // If the tokenizer is provided we can print error messages that are
-  // line/col specific.
-  const tok::tokenizer_t* tokenizer = nullptr;
-
-  // Each of the independent variables in gradient order.
-  std::vector<std::string> var_names;
-
   // The first var_names.size() items encode independent variables.
+  std::vector<std::string> var_names;
   std::vector<item_t> tape;
 };
 
+autodiff_t make_autodiff(const std::string& formula, 
+  const std::vector<std::string>& var_names);
+
 std::string print_ad(const ad_t* ad, int indent = 0);
-std::string print_ad(const ad_builder_t& ad_builder);
+std::string print_autodiff(const autodiff_t& autodiff);
 
 END_APEX_NAMESPACE

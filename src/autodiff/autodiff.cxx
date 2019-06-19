@@ -1,11 +1,124 @@
 #include <apex/autodiff.hxx>
 #include <sstream>
 #include <cstdarg>
+#include <map>
 #include <algorithm>
 
 BEGIN_APEX_NAMESPACE
 
 using namespace parse;
+
+
+struct ad_builder_t : autodiff_t {
+  typedef autodiff_t::item_t item_t;
+  typedef autodiff_t::item_t::grad_t grad_t;
+  
+  int literal_node(double x);
+
+  // Operators
+  int add(int a, int b);
+  int sub(int a, int b);
+  int mul(int a, int b);
+  int div(int a, int b);
+  int negate(int a);
+
+  // Calls to elementary functions.
+  int sq(int a);
+  int sqrt(int a);
+  int exp(int a);
+  int log(int a);
+  int sin(int a);
+  int cos(int a);
+  int tan(int a);
+  int sinh(int a);
+  int cosh(int a);
+  int tanh(int a);
+  int abs(int a);
+  int pow(int a, int b);
+  int norm(const int* p, int count);
+  
+  ad_ptr_t val(int index);
+  ad_ptr_t literal(double x);
+  ad_ptr_t add(ad_ptr_t a, ad_ptr_t b);
+  ad_ptr_t sub(ad_ptr_t a, ad_ptr_t b);
+  ad_ptr_t mul(ad_ptr_t a, ad_ptr_t b);
+  ad_ptr_t div(ad_ptr_t a, ad_ptr_t b);
+  ad_ptr_t rcp(ad_ptr_t a);
+  ad_ptr_t sq(ad_ptr_t a);
+  ad_ptr_t func(const char* name, ad_ptr_t a, ad_ptr_t b = nullptr);
+
+  std::string str(const parse::node_t* node);
+
+  int recurse(const parse::node_ident_t* node);
+  int recurse(const parse::node_member_t* node);
+  int recurse(const parse::node_subscript_t* node);
+  int recurse(const parse::node_unary_t* node);
+  int recurse(const parse::node_binary_t* node);
+  int recurse(const parse::node_call_t* node);
+  int recurse(const parse::node_t* node);
+
+  void throw_error(const parse::node_t* node, const char* fmt, ...);
+
+  int push_item(item_t item) {
+    int count = tape.size();
+    tape.push_back(std::move(item));
+    return count;
+  }
+
+  int find_var(const parse::node_t* node, std::string name);
+
+  // If the tokenizer is provided we can print error messages that are
+  // line/col specific.
+  const tok::tokenizer_t* tokenizer = nullptr;
+
+  // Store each literal value once. This doesn't effect the computation 
+  // directly, but is helpful for subexpression elimination.
+  std::map<double, int> literal_map;
+
+  enum op_name_t {
+    op_name_tape,
+    op_name_literal,
+    op_name_add,
+    op_name_sub,
+    op_name_mul,
+    op_name_div,
+    op_name_negate,
+    op_name_sq,
+    op_name_sqrt,
+    op_name_exp,
+    op_name_log,
+    op_name_sin,
+    op_name_cos,
+    op_name_tan,
+    op_name_sinh,
+    op_name_cosh,
+    op_name_tanh,
+    op_name_abs,
+    op_name_pow,
+  };
+
+  union op_key_t {
+    struct {
+      op_name_t name : 8;
+      uint a         : 28;
+      uint b         : 28; 
+    };
+    uint64_t bits;
+  };
+
+  std::optional<int> find_cse(op_name_t op_name, int a, int b = -1);
+  std::optional<int> find_literal(double x);
+
+  // Map each operation to the location in the tape where its value is stored.
+  // We only build this structure during the upsweep when computing the tape
+  // values. We won't necessarily match common subexpressions in partial 
+  // derivatives, because we don't want to memoize all those fragments as it
+  // will consume more storage than we're prepared to give.
+  std::map<uint64_t, int> cse_map;
+};
+
+
+////////////////////////////////////////////////////////////////////////////////
 
 int ad_builder_t::literal_node(double x) {
   item_t item { };
@@ -14,6 +127,9 @@ int ad_builder_t::literal_node(double x) {
 }
 
 int ad_builder_t::add(int a, int b) {
+  if(auto cse = find_cse(op_name_add, a, b))
+    return *cse;
+
   item_t item { };
   item.val = add(val(a), val(b));
   item.grads.push_back({
@@ -28,6 +144,13 @@ int ad_builder_t::add(int a, int b) {
 }
 
 int ad_builder_t::sub(int a, int b) {
+  // Nip this in the bud.
+  if(a == b)
+    return literal_node(0);
+  
+  if(auto cse = find_cse(op_name_sub, a, b))
+    return *cse;
+
   item_t item { };
   item.val = sub(val(a), val(b));
   item.grads.push_back({
@@ -42,6 +165,13 @@ int ad_builder_t::sub(int a, int b) {
 }
 
 int ad_builder_t::mul(int a, int b) {
+  if(auto cse = find_cse(op_name_mul, a, b))
+    return *cse;
+
+  // The sq operator is memoized, so prefer that.
+  if(a == b)
+    return sq(a);
+
   // grad (a * b) = a grad b + b grad a.
   item_t item { };
   item.val = mul(val(a), val(b));
@@ -57,6 +187,9 @@ int ad_builder_t::mul(int a, int b) {
 }
 
 int ad_builder_t::div(int a, int b) {
+  if(auto cse = find_cse(op_name_div, a, b))
+    return *cse;
+
   // grad (a / b) = 1 / b * grad a - a / b^2 * grad b.
   item_t item { };
   item.val = div(val(a), val(b));
@@ -74,6 +207,7 @@ int ad_builder_t::div(int a, int b) {
 }
 
 int ad_builder_t::negate(int a) {
+  
   item_t item { };
   item.val = mul(literal(-1), val(a));
   item.grads.push_back({
@@ -190,6 +324,15 @@ int ad_builder_t::tanh(int a) {
   return push_item(std::move(item));
 }
 
+int ad_builder_t::abs(int a) {
+  item_t item { };
+  item.val = func("std::abs", val(a));
+  item.grads.push_back({
+    a,    // d/dx abs(x) = x / abs(x)
+    div(val(a), func("std::abs", val(a)))
+  });
+}
+
 int ad_builder_t::pow(int a, int b) {
   item_t item { };
   item.val = func("std::pow", val(a), val(b));
@@ -250,9 +393,9 @@ std::string ad_builder_t::str(const node_t* node) {
         "[" + str(subscript->args[0].get()) + "]";
     }
 
-    case node_t::kind_int: {
-      const auto* int_ = static_cast<const node_int_t*>(node);
-      return std::to_string(int_->ui);
+    case node_t::kind_number: {
+      const auto* number = static_cast<const node_number_t*>(node);
+      return number->x.to_string();
     }
 
     default:
@@ -325,6 +468,7 @@ int ad_builder_t::recurse(const node_call_t* node) {
   GEN_CALL_1(sinh)
   GEN_CALL_1(cosh)
   GEN_CALL_1(tanh)
+  GEN_CALL_1(abs)
  
   #undef GEN_CALL_1
 
@@ -347,13 +491,11 @@ int ad_builder_t::recurse(const node_call_t* node) {
 int ad_builder_t::recurse(const node_t* node) {
   int result = -1;
   switch(node->kind) {
-    case node_t::kind_float:
-      result = literal_node(static_cast<const node_float_t*>(node)->ld);
+    case node_t::kind_number: {
+      auto* number = node->as<node_number_t>();
+      result = literal_node(number->x.convert<double>());
       break;
-
-    case node_t::kind_int:
-      result = literal_node(static_cast<const node_int_t*>(node)->ui);
-      break;      
+    } 
 
     case node_t::kind_ident:
     case node_t::kind_member:
@@ -381,21 +523,25 @@ int ad_builder_t::recurse(const node_t* node) {
   return result;
 }
 
-void ad_builder_t::process(const parse_t& parse, 
-  std::vector<std::string> var_names) {
+autodiff_t make_autodiff(const parse_t& parse, 
+  const std::vector<std::string>& var_names) {
 
-  tokenizer = &parse.tokenizer;
-  this->var_names = std::move(var_names);
-  tape.resize(this->var_names.size());
-  recurse(parse.root.get());
+  ad_builder_t ad_builder;
+  ad_builder.tokenizer = &parse.tokenizer;
+  ad_builder.var_names = var_names;
+  ad_builder.tape.resize(ad_builder.var_names.size());
+  ad_builder.recurse(parse.root.get());
+
+  return std::move(ad_builder);
 }
 
-void ad_builder_t::process(const std::string& formula, 
-  std::vector<std::string> var_names) {
+autodiff_t make_autodiff(const std::string& formula,
+  const std::vector<std::string>& var_names) {
 
   auto p = parse::parse_expression(formula.c_str()); 
-  process(p, std::move(var_names));
+  return make_autodiff(p, std::move(var_names));
 }
+
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -409,30 +555,55 @@ ad_ptr_t ad_builder_t::literal(double x) {
 }
 
 ad_ptr_t ad_builder_t::add(ad_ptr_t a, ad_ptr_t b) {
-  return std::make_unique<ad_binary_t>("+", std::move(a), std::move(b));
+  auto* a2 = a->as<ad_literal_t>();
+  auto* b2 = b->as<ad_literal_t>();
+  if(a2 && b2)
+    return literal(a2->x + b2->x);
+  else 
+    return std::make_unique<ad_binary_t>("+", std::move(a), std::move(b));
 }
 
 ad_ptr_t ad_builder_t::sub(ad_ptr_t a, ad_ptr_t b) {
+  auto* a2 = a->as<ad_literal_t>();
+  auto* b2 = b->as<ad_literal_t>();
+  if(a2 && b2)
+    return literal(a2->x - b2->x);
   return std::make_unique<ad_binary_t>("-", std::move(a), std::move(b));
 }
 
 ad_ptr_t ad_builder_t::mul(ad_ptr_t a, ad_ptr_t b) {
+  auto* a2 = a->as<ad_literal_t>();
+  auto* b2 = b->as<ad_literal_t>();
+  if(a2 && b2)
+    return literal(a2->x * b2->x);
   return std::make_unique<ad_binary_t>("*", std::move(a), std::move(b));
 }
 
 ad_ptr_t ad_builder_t::div(ad_ptr_t a, ad_ptr_t b) {
+  auto* a2 = a->as<ad_literal_t>();
+  auto* b2 = b->as<ad_literal_t>();
+  if(a2 && b2)
+    return literal(a2->x / b2->x);
   return std::make_unique<ad_binary_t>("/", std::move(a), std::move(b));
 }
 
 ad_ptr_t ad_builder_t::rcp(ad_ptr_t a) {
-  return div(literal(1), std::move(a));
+  if(auto* a2 = a->as<ad_literal_t>())
+    return literal(1 / a2->x);
+  else
+    return div(literal(1), std::move(a));
 }
 
 ad_ptr_t ad_builder_t::sq(ad_ptr_t a) {
-  return func("apex::sq", std::move(a));
+  if(auto* a2 = a->as<ad_literal_t>())
+    return literal(a2->x * a2->x);
+  else
+    return func("apex::sq", std::move(a));
 }
 
 ad_ptr_t ad_builder_t::func(const char* f, ad_ptr_t a, ad_ptr_t b) {
+  // TODO: Perform constant folding?
+
   auto node = std::make_unique<ad_func_t>(f);
   node->args.push_back(std::move(a));
   if(b) node->args.push_back(std::move(b));
@@ -472,6 +643,38 @@ int ad_builder_t::find_var(const node_t* node, std::string name) {
   return it - var_names.begin();
 }
 
+std::optional<int> ad_builder_t::find_cse(op_name_t op_name, int a, int b) {
+  switch(op_name) {
+    case op_name_add:
+    case op_name_mul:
+      // For these commutative operators, put the lower index on the left.
+      // This improves CSE performance.
+      if(a > b)
+        std::swap(a, b);
+      break;
+
+    default:
+      break;
+  }
+
+  op_key_t op_key { op_name, (uint)a, (uint)b };
+  auto it = cse_map.find(op_key.bits);
+  std::optional<int> index;
+  if(cse_map.end() != it) {
+    index = it->second;
+  }
+  return index;
+}
+
+std::optional<int> ad_builder_t::find_literal(double x) {
+  auto it = literal_map.find(x);
+  std::optional<int> index;
+  if(literal_map.end() != it) {
+    index = it->second;
+  }
+  return index;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void print_ad(const ad_t* ad, std::ostringstream& oss, int indent) {
@@ -506,23 +709,23 @@ std::string print_ad(const ad_t* ad, int indent) {
   return oss.str();
 }
 
-std::string print_ad(const ad_builder_t& ad_builder) {
+std::string print_autodiff(const autodiff_t& autodiff) {
   // Print all non-terminal tape items.
   std::ostringstream oss;
 
-  for(int i = ad_builder.var_names.size(); i < ad_builder.tape.size(); ++i) {
-    const auto& item = ad_builder.tape[i];
+  for(int i = autodiff.var_names.size(); i < autodiff.tape.size(); ++i) {
+    const auto& item = autodiff.tape[i];
 
     oss<< "tape "<< i<< ":\n";
 
     // Print the value.
     oss<< "  value =\n";
-    print_ad(item.val.get(), 2);
+    oss<< print_ad(item.val.get(), 2);
 
     // Print each gradient.
     for(const auto& grad : item.grads) {
       oss<< "  grad "<< grad.index<< " = \n";
-      print_ad(grad.coef.get(), 2);
+      oss<< print_ad(grad.coef.get(), 2);
     }
   }
 
