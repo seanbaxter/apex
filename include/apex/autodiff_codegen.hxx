@@ -121,14 +121,13 @@ template<typename... args_t>
 }
 
 @macro auto autodiff_grad(std::string __fmt, 
-  std::vector<std::string> __var_names, bool print_debug = false) {
+  std::vector<std::string> __var_names) {
 
   // Construct the autodiff builder. make_autodiff is in libapex.so.
   @meta apex::autodiff_t __autodiff = apex::make_autodiff(__fmt, __var_names);
 
   // Print the tape if requested. print_autodiff is in libapex.so.
-  @meta if(print_debug)
-    @meta printf(apex::print_autodiff(__autodiff).c_str());
+  // @meta printf(apex::print_autodiff(__autodiff).c_str());
 
   // Generate and call into a metafunction. The meta argument is the
   // autodiff builder. The real arguments are the values of each of the
