@@ -108,7 +108,7 @@ struct grammar_t {
 
   void throw_error(token_it pos, const char* fmt, ...);
   void throw_error(source_loc_t loc, const char* fmt, ...);
-  void unexpected_token(token_it pos, const char* msg);
+  void unexpected_token(token_it pos, const char* rule);
 
   source_loc_t loc(token_it it) const;
 
@@ -833,7 +833,13 @@ void grammar_t::throw_error(token_it pos, const char* fmt, ...) {
   
 }
 
-void grammar_t::unexpected_token(token_it pos, const char* msg) {
+void grammar_t::unexpected_token(token_it pos, const char* rule) {
+  const char* begin = pos->begin;
+  const char* end = pos->end;
+  int len = end - begin;
+
+  std::string msg = format("unexpected token '%.*s' in %s", len, begin, rule);
+
   throw parse_exception_t(msg);
 }
 

@@ -486,3 +486,58 @@ The expression macro `autodiff_expr` recurses an `ad_t` tree and switches on eac
 * Function call nodes have the _name_ of the function stored as a string. When evaluated with `@expression`, name lookup is performed on the qualified name (eg, "std::cos") and returns a function lvalue or overload set.
 
 Each tape item (corresponding to sparse matrix row) includes one `ad_t` tree that renders the value of the subexpression, and one `ad_t` per child node in the DAG to compute partial derivatives. The values are computed in bottom-up order (forward through the tape), and the partial derivatives are computed in top-down order (reverse mode through the tape). An optimization potential may be exposed by evaluating all partial derivatives in parallel (there are no data dependencies between them), and using a parallelized sparse back-propagation code to concatenate the partial derivatives. Again, these choices should be made by the intelligence of the library, which is well-separated from the metaprogramming concerns of the code generator.
+
+## DSL error reporting
+
+Circle has been adding capability for better integration of compile-time exceptions with compiler errors. With build 29, if an exception is thrown either from the Circle interpreter or from a foreign function call to a dynamically-loaded shared object, a backtrace for the unhandled exception is printed along with the exception's error. This helps us understand exactly where and why the error was generated.
+
+Consider breaking the syntax of our Apex autodiff function:
+```cpp
+std::array<double, 2> my_grad(double x, double y) {
+  return apex::autodiff_grad("sq(x / y) * 2 sin(x)", { "x", "y" });
+}
+```
+
+The Apex grammar doesn't support this kind of implicit multiplication. The `sin` call is simply an unexpected token, so our parser throws an exception indicating such:
+
+[**grammar.cxx**](../src/parse/grammar.cxx)
+```cpp
+void grammar_t::unexpected_token(token_it pos, const char* rule) {
+  const char* begin = pos->begin;
+  const char* end = pos->end;
+  int len = end - begin;
+
+  std::string msg = format("unexpected token '%.*s' in %s", len, begin, rule);
+
+  throw parse_exception_t(msg);
+}
+```
+
+This exception originates in compiled code, and unrolls the stack through the foreign function call to `apex::make_autodiff`, through the entire Circle compiler, until it is finally caught from Circle's `main` function and printed as an uncaught exception. Wonderfully, Circle constructs backtrace information as this exception unrolls through function calls and macro expansions, and presents the backtrace as compiler errors:
+
+![grad1.cxx errors](autodiff_errors.png)
+
+The text saved in the `parse_exception_t` class (which derives `std::runtime_error`, which is how we access its error message) is printed in the most-indented part of the error. Around that, we're shown that it's thrown from `apex::make_autodiff` from `libapex.so`. In turn, that function call is made from macro expansion of `apex::autodiff_grad`. The offending string is shown here, and we can see the call to `sin` which corresponds to the parse error thrown from inside Apex.
+
+The backtrace will print the full path of functions called, regardless of if they are called from interpreted or compiled code. Additionally, the _throw-expression_ generating the exception is flagged:
+
+**test.cxx**
+```cpp
+#include <stdexcept>
+
+void func1() {
+  throw std::runtime_error("A bad bad thing");  
+}
+
+void func2() {
+  func1();
+}
+
+void func3() {
+  func2();
+}
+
+@meta func3();
+```
+
+![test.cxx errors](test_errors.png)
