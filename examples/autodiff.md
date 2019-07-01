@@ -1,8 +1,13 @@
 # Reverse-mode automatic differentiation with Circle and Apex
 
 ```cpp
-std::array<double, 2> my_grad(double x, double y) {
-  return apex::autodiff_grad("sq(x / y) * sin(x)", { "x", "y" });
+struct terms_t {
+  double x;
+  double y;
+};
+
+terms_t my_grad(terms_t input) {
+  return apex::autodiff_grad("sq(x / y) * sin(x * y)", input);
 }
 ```
 
@@ -496,11 +501,6 @@ The expression macro `autodiff_expr` recurses an `ad_t` tree and switches on eac
 * Function call nodes have the _name_ of the function stored as a string. When evaluated with `@expression`, name lookup is performed on the qualified name (eg, "std::cos") and returns a function lvalue or overload set.
 
 Each tape item (corresponding to sparse matrix row) includes one `ad_t` tree that renders the value of the subexpression, and one `ad_t` per child node in the DAG to compute partial derivatives. The values are computed in bottom-up order (forward through the tape), and the partial derivatives are computed in top-down order (reverse mode through the tape). An optimization potential may be exposed by evaluating all partial derivatives in parallel (there are no data dependencies between them), and using a parallelized sparse back-propagation code to concatenate the partial derivatives. Again, these choices should be made by the intelligence of the library, which is well-separated from the metaprogramming concerns of the code generator.
-
-
-
-
-
 
 ## DSL error reporting
 
