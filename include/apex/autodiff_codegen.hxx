@@ -44,8 +44,8 @@ inline double sq(double x) {
     // 1) Speculatively expand the macro expansion.
     // 2) Make the macro expansion a dependent expression when its passed an
     //    unexpanded pack argument. Parse through to the end of the statement,
-    //    then 
-
+    //    then perform substitution and expansion. This is probably what should
+    //    happen.
 
     // That feature will eliminate the need to switch over the
     // argument counts.
@@ -67,7 +67,7 @@ inline double sq(double x) {
   @meta if(index < num_vars) {
     // We've hit a terminal, which corresponds to an independent variable.
     // Increment the gradient array by the coefficient at parent.
-    grad[index] += coef[parent];
+    @member_ref(grad, index) += coef[parent];
 
   } else {
     // We're in a subexpression. Evaluate each of the child nodes.
@@ -79,22 +79,44 @@ inline double sq(double x) {
   }
 }
 
-template<typename... args_t>
-@meta std::array<double, sizeof...(args_t)> autodiff_eval(
-  @meta const apex::autodiff_t& autodiff, args_t... args) {
+template<typename type_t>
+@meta type_t autodiff_grad(@meta const char* formula, type_t input) {
 
-  @meta size_t num_vars = autodiff.var_names.size();
-  @meta size_t num_items = autodiff.tape.size();
+  // Parse out the names from the inputs.
+  static_assert(std::is_class<type_t>::value, 
+    "argument to autodiff_eval must be a class object");
+
+  // Collect the name of each primary input.
+  @meta std::vector<autodiff_var_t> vars;
+  @meta size_t num_vars = @member_count(type_t);
+
+  // Copy the values of the independent variables into the tape.
+  double tape_values[num_vars];
+  @meta for(int i = 0; i < num_vars; ++i) {
+    // Confirm that we have a scalar double-precision term.
+    static_assert(std::is_same<@member_type(type_t, i), double>::value,
+      std::string("member ") + @member_name(type_t, i) + " must be type double");
+
+    // Push the primary input name.
+    @meta vars.push_back({
+      @member_name(type_t, i),
+      0
+    });
+
+    // Set the primary input's value.
+    tape_values[i] = @member_ref(input, i);
+  }
+
+  // Construct the tape. This makes a foreign function call into libapex.so.
+  @meta apex::autodiff_t autodiff = apex::make_autodiff(formula, vars);
+  @meta size_t count = autodiff.tape.size();
 
   // Compute the values for the whole tape. This is the forward-mode pass. 
   // It propagates values from the terminals (independent variables) through
   // the subexpressions and up to the root of the function.
 
-  // Copy the values of the independent variables into the tape.
-  double tape_values[num_items] { args... };
-
   // Evaluate the subexpressions.
-  @meta for(size_t i = num_vars; i < num_items; ++i)
+  @meta for(size_t i = num_vars; i < count; ++i)
     tape_values[i] = autodiff_expr(autodiff.tape[i].val.get());
 
   // Evaluate the gradients. This is a top-down reverse-mode traversal of 
@@ -103,12 +125,11 @@ template<typename... args_t>
   // corresponding component of the gradient is incremented by the product of
   // all the partial derivatives from the root of the DAG down to that 
   // terminal.
-
-  double coef[num_items];
-  std::array<double, num_vars> grad { };
+  double coef[num_vars];
+  type_t grad { };
 
   // Visit each child of the root node.
-  @meta int root = num_items - 1;
+  @meta int root = count - 1;
   @meta for(const auto& g : autodiff.tape[root].grads) {
     // Evaluate the coefficient into the stack.
     coef[root] = autodiff_expr(g.coef.get());
@@ -118,25 +139,6 @@ template<typename... args_t>
   }
 
   return std::move(grad);
-}
-
-@macro auto autodiff_grad(std::string __fmt, 
-  std::vector<std::string> __var_names) {
-
-  // Construct the autodiff builder. make_autodiff is in libapex.so.
-  @meta apex::autodiff_t __autodiff = apex::make_autodiff(__fmt, __var_names);
-
-  // Print the tape if requested. print_autodiff is in libapex.so.
-  // @meta printf(apex::print_autodiff(__autodiff).c_str());
-
-  // Generate and call into a metafunction. The meta argument is the
-  // autodiff builder. The real arguments are the values of each of the
-  // independent variables, evaluated in the scope of solve_autodiff's 
-  // caller and supplied to autodiff_eval using parameter pack expansion. 
-  return autodiff_eval(
-    __autodiff, 
-    @expression(__var_names[__integer_pack(__var_names.size())])...
-  );
 }
 
 END_APEX_NAMESPACE

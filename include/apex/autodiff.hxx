@@ -10,6 +10,7 @@ struct ad_exeption_t : std::runtime_error {
 struct ad_t {
   enum kind_t {
     kind_tape,
+    kind_component,
     kind_literal,
     kind_unary,
     kind_binary,
@@ -38,6 +39,13 @@ typedef std::unique_ptr<ad_t> ad_ptr_t;
 struct ad_tape_t : ad_t {
   ad_tape_t(int index) : ad_t(kind_tape), index(index) { }
   static bool classof(const ad_t* ad) { return kind_tape == ad->kind; }
+
+  int index;
+};
+
+struct ad_component_t : ad_t {
+  ad_component_t(int index) : ad_t(kind_component), index(index) { }
+  static bool classof(const ad_t* ad) { return kind_component == ad->kind; }
 
   int index;
 };
@@ -75,8 +83,20 @@ struct ad_func_t : ad_t {
   std::vector<ad_ptr_t> args;
 };
 
+// Each primary input may be a scalar (dim 0) or a vector (dim > 0).
+// autodiff_codegen.hxx uses introspection to parse these out of 
+// the argument type.
+struct autodiff_var_t {
+  std::string name;
+  int dim;
+};
+
 struct autodiff_t {
   struct item_t {
+    // The dimension of the tape item. 
+    // 0 == dim for scalar. dim > 0 for vector.
+    int dim;
+
     // The expression to execute to compute this dependent variable's value.
     // This is evaluated during the upsweep when creating the tape from the 
     // independent variables and moving through all subexpressions.
@@ -98,12 +118,12 @@ struct autodiff_t {
   };
 
   // The first var_names.size() items encode independent variables.
-  std::vector<std::string> var_names;
+  std::vector<autodiff_var_t> vars;
   std::vector<item_t> tape;
 };
 
 autodiff_t make_autodiff(const std::string& formula, 
-  const std::vector<std::string>& var_names);
+  const std::vector<autodiff_var_t>& vars);
 
 std::string print_ad(const ad_t* ad, int indent = 0);
 std::string print_autodiff(const autodiff_t& autodiff);

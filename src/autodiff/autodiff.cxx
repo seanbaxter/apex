@@ -526,22 +526,22 @@ int ad_builder_t::recurse(const node_t* node) {
 }
 
 autodiff_t make_autodiff(const parse_t& parse, 
-  const std::vector<std::string>& var_names) {
+  const std::vector<autodiff_var_t>& vars) {
 
   ad_builder_t ad_builder;
   ad_builder.tokenizer = &parse.tokenizer;
-  ad_builder.var_names = var_names;
-  ad_builder.tape.resize(ad_builder.var_names.size());
+  ad_builder.vars = vars;
+  ad_builder.tape.resize(ad_builder.vars.size());
   ad_builder.recurse(parse.root.get());
 
   return std::move(ad_builder);
 }
 
 autodiff_t make_autodiff(const std::string& formula,
-  const std::vector<std::string>& var_names) {
+  const std::vector<autodiff_var_t>& vars) {
 
   auto p = parse::parse_expression(formula.c_str()); 
-  return make_autodiff(p, std::move(var_names));
+  return make_autodiff(p, std::move(vars));
 }
 
 
@@ -639,10 +639,11 @@ void ad_builder_t::throw_error(const node_t* node, const char* fmt, ...) {
 }
 
 int ad_builder_t::find_var(const node_t* node, std::string name) {
-  auto it = std::find(var_names.begin(), var_names.end(), name);
-  if(var_names.end() == it)
+  auto p = [&](const auto& var) { return var.name == name; };
+  auto it = std::find_if(vars.begin(), vars.end(), p);
+  if(vars.end() == it)
     throw_error(node, "unknown variable '%s'", name.c_str());
-  return it - var_names.begin();
+  return it - vars.begin();
 }
 
 std::optional<int> ad_builder_t::find_cse(op_name_t op_name, int a, int b) {
@@ -715,7 +716,7 @@ std::string print_autodiff(const autodiff_t& autodiff) {
   // Print all non-terminal tape items.
   std::ostringstream oss;
 
-  for(int i = autodiff.var_names.size(); i < autodiff.tape.size(); ++i) {
+  for(int i = autodiff.vars.size(); i < autodiff.tape.size(); ++i) {
     const auto& item = autodiff.tape[i];
 
     oss<< "tape "<< i<< ":\n";
