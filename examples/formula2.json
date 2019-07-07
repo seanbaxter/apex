@@ -1,0 +1,4 @@
+{
+  "F3" : "exp(x * x) + y / z",
+  "F4" : "sqrt(sq(x) + sq(y) + sq(z))"
+}

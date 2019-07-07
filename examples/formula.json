@@ -1,0 +1,4 @@
+{
+  "F1" : "sin(x / y + z) / sq(x + y + z)",
+  "F2" : "tanh(sin(x) * exp(y / z))"
+}
