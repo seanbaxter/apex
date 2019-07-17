@@ -572,6 +572,7 @@ Circle integrates with the host environment and provides functionality of script
 
 The translation unit will open this file using the header-only [json.hpp](https://github.com/nlohmann/json) library, read the contents, inject functions for evaluating both functions, and call into the Apex library for code to compute the derivatives for each library. Finally, we'll generate a driver program that takes command-line arguments for evaluating one of the functions and its gradient.
 
+[**grad2.cxx**](grad2.cxx)  
 ```cpp
 #include <json.hpp>
 #include <fstream>
@@ -690,7 +691,7 @@ We've built both diagnostics and a client program into our translation unit, dri
 
 With a one-line change we can turn `grad2` into `grad3`, a command-line tool that gets pointed at a JSON configuration file and generates code from that. How do we pass arguments through the Circle compiler to the translation unit? Preprocessor macros! We can still get some use from them:
 
-[**grad3.cxx**](grad3.cxx)
+[**grad3.cxx**](grad3.cxx)  
 ```cpp
 @macro gen_functions(INPUT_FILENAME);
 ```
@@ -711,6 +712,7 @@ This is a cute change. We've just separated the resource from the source code of
 
 But can we really exploit the build-system qualities of the compiler? What about having the translation unit scrape all the JSON files in the working directory, and generating code from all the functions found in those? 
 
+[**grad4.cxx**](grad4.cxx)  
 ```cpp
 #include <json.hpp>
 #include <fstream>
