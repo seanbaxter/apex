@@ -3,15 +3,6 @@
 #include <iostream>
 #include <map>
 #include <apex/autodiff_codegen.hxx>
-#include <dirent.h>
-
-inline std::string get_extension(const std::string& filename) {  
-  return filename.substr(filename.find_last_of(".") + 1);
-}
-
-inline bool match_extension(const char* filename, const char* ext) {
-  return ext == get_extension(filename);
-}
 
 // Parse the JSON file and keep it open in j.
 using nlohmann::json;

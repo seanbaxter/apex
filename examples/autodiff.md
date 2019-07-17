@@ -53,6 +53,7 @@ A strength of this approach is that it requires very little Circle code, only a 
 
 ## Autodiff for Circle
 
+[**grad1.cxx**](grad1.cxx)  
 ```cpp
 #include <apex/autodiff_codegen.hxx>
 
@@ -556,3 +557,215 @@ void func3() {
 ```
 
 ![test.cxx errors](test_errors.png)
+
+## Circle as a build system
+
+Circle integrates with the host environment and provides functionality of scripting languages and build systems. We can use this compile-time capability and drive program generation from resources. To extend the gradient example let's specify functions to differentiate in JSON files in the working directory:
+
+[**forumla.json**](formula.json)  
+```
+{
+  "F1" : "sin(x / y + z) / sq(x + y + z)",
+  "F2" : "tanh(sin(x) * exp(y / z))"
+}
+```
+
+The translation unit will open this file using the header-only [json.hpp](https://github.com/nlohmann/json) library, read the contents, inject functions for evaluating both functions, and call into the Apex library for code to compute the derivatives for each library. Finally, we'll generate a driver program that takes command-line arguments for evaluating one of the functions and its gradient.
+
+```cpp
+#include <json.hpp>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <apex/autodiff_codegen.hxx>
+
+// Parse the JSON file and keep it open in j.
+using nlohmann::json;
+using apex::sq;
+
+struct vec3_t {
+  double x, y, z;
+};
+
+// Record the function names encountered in here!
+@meta std::vector<std::string> func_names;
+
+@macro void gen_functions(const char* filename) {
+  // Open this file at compile time and parse as JSON.
+  @meta std::ifstream json_file(filename);
+  @meta json j;
+  @meta json_file>> j;
+  
+  @meta for(auto& item : j.items()) {
+    // For each item in the json...
+    @meta std::string name = item.key();
+    @meta std::string f = item.value();
+    @meta std::cout<< "Injecting '"<< name<< "' : '"<< f<< "' from "<< 
+      filename<< "\n";
+    
+    // Generate a function from the expression.
+    extern "C" double @("f_" + name)(vec3_t v) {
+      double x = v.x, y = v.y, z = v.z;
+      return @expression(f);
+    }
+    
+    // Generate a function to return the gradient.
+    extern "C" vec3_t @("grad_" + name)(vec3_t v) {
+      return apex::autodiff_grad(f.c_str(), v);
+    }
+
+    @meta func_names.push_back(name);
+  }
+}
+```
+
+First, we'll write a statement macro `gen_functions` which takes a filename (since this is a macro, the value of the argument must be known at compile time). Expanding the macro creates a new meta scope but reuses the real scope of the call site. This way, we can create new meta objects like the file handle and JSON object without polluting the declarative region we're expanding the macro into.
+
+We open the JSON file at compile time and range-for through its contents. We'll echo back to the user the functions being generated, then define functions `"f_" + name` and `"grad_" + name`. The Circle operator `@()` transforms strings to tokens. If we expand this statement macro into a namespace scope, the real declarations are interpreted as function definitions.
+
+Circle macros allow you to programmatically inject code into any statement- or expression-accepting scope. Unlike preprocessor macros, these macros follow argument deduction and overload resolution rules. They establish a new meta scope to allow you to use your own tooling. Only the _real statements_ fall through the macro and are inserted into the target scope.
+
+After the value and gradient functions are defined, we simply push the name of the function to the `func_names` array which sits in the global namespace.
+
+```cpp
+@macro gen_functions("formula.json");
+
+std::pair<double, vec3_t> eval(const char* name, vec3_t v) {
+  @meta for(const std::string& f : func_names) {
+    if(!strcmp(name, @string(f))) {
+      return {
+        @("f_" + f)(v),
+        @("grad_" + f)(v)
+      };
+    }
+  }
+
+  printf("Unknown function %s\n", name);
+  exit(1);
+}
+
+void print_usage() {
+  printf("  Usage: grad2 name x y z\n");
+  exit(1);
+}
+
+int main(int argc, char** argv) {
+  if(5 != argc)
+    print_usage();
+ 
+  const char* f = argv[1];
+  double x = atof(argv[2]);
+  double y = atof(argv[3]);
+  double z = atof(argv[4]);
+  vec3_t v { x, y, z };
+
+  auto result = eval(f, v);
+  double val = result.first;
+  vec3_t grad = result.second;
+
+  printf("  f: %f\n", val);
+  printf("  grad: { %f, %f, %f }\n", grad.x, grad.y, grad.z);
+  
+  return 0;
+}
+```
+
+In the second half of the program we generate a driver capability. `eval` is a normal runtime function that takes the name of the function as a string and the primary inputs as a `vec3_t`. We then loop over all the function names pushed in `gen_functions`. The Circle extension `@string` converts a compile-time `std::string` back into a string literal, so we can `strcmp` it against our runtime function name. If we have a match, we'll evaluate the function and its gradient and return the results in an `std::pair`. 
+
+Note that we have to expand `gen_functions` over the input file `formula.json` _prior_ to entering the definition for `eval`, because `gen_functions` populates the `func_names` array. If we were to change the order of operations here, `func_names` would be empty when `eval` is translated, resulting in a broken driver program.
+
+```
+$ circle grad2.cxx -I ../include/ -M ../Debug/libapex.so 
+Injecting 'F1' : 'sin(x / y + z) / sq(x + y + z)' from formula.json
+Injecting 'F2' : 'tanh(sin(x) * exp(y / z))' from formula.json
+
+$ ./grad2 F1 .5 .6. .7
+  f: 0.308425
+  grad: { 0.361961, 0.358750, 0.354255 }
+```
+
+## More build options
+
+We've built both diagnostics and a client program into our translation unit, driven by a simple portable JSON resource file sitting in the source directory. 
+
+With a one-line change we can turn `grad2` into `grad3`, a command-line tool that gets pointed at a JSON configuration file and generates code from that. How do we pass arguments through the Circle compiler to the translation unit? Preprocessor macros! We can still get some use from them:
+
+[**grad3.cxx**](grad3.cxx)
+```cpp
+@macro gen_functions(INPUT_FILENAME);
+```
+
+Instead of expanding the `gen_functions` statement macro on "formula.json", let's expand it on a macro defined to a string literal. How do we build? Just use the -D command-line argument to bind macros. Keep in mind the escaped quotes \" to satisfy the requirements of the Linux terminal:
+
+```
+$ circle grad3.cxx -I ../include/ -M ../Debug/libapex.so -DINPUT_FILENAME=\"formula2.json\"
+Injecting 'F3' : 'exp(x * x) + y / z' from formula2.json
+Injecting 'F4' : 'sqrt(sq(x) + sq(y) + sq(z))' from formula2.json
+
+$ ./grad3 F4 .4 .5 .6
+  f: 0.877496
+  grad: { 0.455842, 0.569803, 0.683763 }
+```
+
+This is a cute change. We've just separated the resource from the source code of the program.
+
+But can we really exploit the build-system qualities of the compiler? What about having the translation unit scrape all the JSON files in the working directory, and generating code from all the functions found in those? 
+
+```cpp
+#include <json.hpp>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <apex/autodiff_codegen.hxx>
+#include <dirent.h>
+
+inline std::string get_extension(const std::string& filename) {  
+  return filename.substr(filename.find_last_of(".") + 1);
+}
+
+inline bool match_extension(const char* filename, const char* ext) {
+  return ext == get_extension(filename);
+}
+
+// ... Snipped out the same gen_functions macro as grad2.cxx.
+
+// Use Circle like a build system:
+
+// Open the current directory.
+@meta DIR* dir = opendir(".");
+
+// Loop over all files in the current directory.
+@meta while(dirent* ent = readdir(dir)) {
+
+  // Match .json files.
+  @meta if(match_extension(ent->d_name, "json")) {
+
+    // Generate functions for all entries in this json file.
+    @macro gen_functions(ent->d_name);
+  } 
+}
+
+@meta closedir(dir);
+```
+
+```
+$ circle grad4.cxx -I ../include -M ../Debug/libapex.so 
+Injecting 'F1' : 'sin(x / y + z) / sq(x + y + z)' from formula.json
+Injecting 'F2' : 'tanh(sin(x) * exp(y / z))' from formula.json
+Injecting 'F3' : 'exp(x * x) + y / z' from formula2.json
+Injecting 'F4' : 'sqrt(sq(x) + sq(y) + sq(z))' from formula2.json
+
+$ ./grad4 F3 .2 .3 .4
+  f: 1.790811
+  grad: { 0.416324, 2.500000, 1.875000 }
+```
+
+POSIX systems put their filesystem APIs in `dirent.h`. Let's include this and write our own function to test the extension of a filename, a simple operation curiously missing from the POSIX API.
+
+Now, _at compile time_, use `opendir` to open the current directory. Keep hitting `readdir` to return a descriptor for the next file in the directory. If the filename ends with ".json", expand the `gen_functions` macro on the JSON's filename. When we've exhausted the directory, be a good citizen and `closedir` the directory handle.
+
+Even though we're nested in a while and an if statement, the _real scope_ of the program at the site of the macro expansion is the global namespace, so the macro will inject its generated functions in the global namespace.
+
+One of the biggest strengths of using Circle as a build system over trying to express equivalent operations in CMake or Make or any other tool is _familiarity_. Even if you didn't know the _dirent.h_ API, you can look it up and in a minute or two know exactly how to use it. Perusing the CMake reference for a directory enumeration command isn't the same help, because you're still stuck trying to express yourself in a language you probably don't know very well (and a language that is much less expressive than C++).
+
+The design goal of Circle is to extend the _compiler_ to let you do much more with the same _language_.

@@ -43,9 +43,6 @@ struct vec3_t {
   }
 }
 
-// May use a -D macro definition at command line to specify filename.
-// @macro gen_functions(FUNCTIONS_JSON);
-
 @macro gen_functions("formula.json");
 
 std::pair<double, vec3_t> eval(const char* name, vec3_t v) {
